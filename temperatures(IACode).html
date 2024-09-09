@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graphique des températures</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .line {
+            fill: none;
+            stroke: steelblue;
+            stroke-width: 1.5px;
+        }
+        .axis-label {
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+
+    <script>
+        // Dimensions du graphique
+        const margin = {top: 20, right: 20, bottom: 30, left: 50};
+        const width = 960 - margin.left - margin.right;
+        const height = 500 - margin.top - margin.bottom;
+
+        // Création du SVG
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Fonction pour parser la date
+        const parseDate = d3.utcParse("%Y-%m-%dT%H:%M");
+        const formatDate = d3.utcFormat("%Y-%m-%d");
+
+        // Échelles
+        const x = d3.scaleTime().range([0, width]);
+        const y = d3.scaleLinear().range([height, 0]);
+
+        // Création de la ligne
+        const line = d3.line()
+            .x(d => x(d.date))
+            .y(d => y(d.temperature));
+
+        // Ajout des axes
+        const xAxis = svg.append("g")
+            .attr("transform", `translate(0,${height})`);
+
+        const yAxis = svg.append("g");
+
+        // Ajout des labels des axes
+        svg.append("text")
+            .attr("class", "axis-label")
+            .attr("transform", `translate(${width/2},${height + margin.bottom})`)
+            .style("text-anchor", "middle")
+            .text("Date");
+
+        svg.append("text")
+            .attr("class", "axis-label")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 0 - margin.left)
+            .attr("x", 0 - (height / 2))
+            .attr("dy", "1em")
+            .style("text-anchor", "middle")
+            .text("Température (°C)");
+
+        // Fonction pour charger les données
+        function loadData(startDate, endDate) {
+            const url = `https://archive-api.open-meteo.com/v1/era5?latitude=43.208&longitude=-0.465&start_date=${startDate}&end_date=${endDate}&hourly=temperature_2m`;
+
+            d3.json(url).then(data => {
+                const temperatures = data.hourly.temperature_2m.map((temp, index) => ({
+                    date: parseDate(data.hourly.time[index]),
+                    temperature: temp
+                }));
+
+                updateChart(temperatures);
+            }).catch(error => console.error("Erreur lors du chargement des données:", error));
+        }
+
+        // Fonction pour mettre à jour le graphique
+        function updateChart(data) {
+            x.domain(d3.extent(data, d => d.date));
+            y.domain(d3.extent(data, d => d.temperature));
+
+            svg.selectAll(".line").remove();
+
+            svg.append("path")
+                .datum(data)
+                .attr("class", "line")
+                .attr("d", line);
+
+            xAxis.call(d3.axisBottom(x));
+            yAxis.call(d3.axisLeft(y));
+        }
+
+        // Fonction de zoom
+        let zoomTimeout;
+        const zoom = d3.zoom()
+            .scaleExtent([1, 32])
+            .extent([[0, 0], [width, height]])
+            .on("zoom", zoomed);
+
+        svg.call(zoom);
+
+        function zoomed(event) {
+            const newX = event.transform.rescaleX(x);
+            svg.select(".line")
+                .attr("d", line.x(d => newX(d.date)));
+            xAxis.call(d3.axisBottom(newX));
+
+            clearTimeout(zoomTimeout);
+            zoomTimeout = setTimeout(() => {
+                const [start, end] = newX.domain().map(formatDate);
+                loadData(start, end);
+            }, 400);
+        }
+
+        // Chargement initial des données (12 derniers mois)
+        const endDate = new Date();
+        const startDate = new Date(endDate);
+        startDate.setFullYear(startDate.getFullYear() - 1);
+        loadData(formatDate(startDate), formatDate(endDate));
+    </script>
+</body>
+</html>

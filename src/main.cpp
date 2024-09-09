@@ -1,4 +1,4 @@
-// maintenir Boot puis branche l'usb, lacher puis Uploader 
+// maintenir Boot puis branche l'usb (ou appuyer sur Reset), lacher puis Uploader 
 #include <Arduino.h>
 #include "Freenove_WS2812_Lib_for_ESP32.h"
 
@@ -10,7 +10,7 @@ Freenove_ESP32_WS2812 strip = Freenove_ESP32_WS2812(1, LEDS_PIN, 0, TYPE_GRB);
 #define SENSOR_WRITE_PIN 6
 
 double const Wheel = 2.360;// 2.478; // 2.242;
-int Intervale_1kmh, Intervale_24kmh, Intervale_25kmh, Intervale_30kmh, Intervale_35kmh, Intervale_40kmh;
+int Intervale_22kmh;
 boolean MagnetPassed = true;
 
 // put function declarations here:
@@ -26,10 +26,10 @@ int LastWheelIntervale=0;
 int NextTcheatIntervale=999999;
 
 void setup() {
-  // strip.begin();
-  // strip.setBrightness(5);
-  // strip.setLedColorData(0, 255, 0, 255);
-  // strip.show();
+  strip.begin();
+  strip.setBrightness(5);
+  strip.setLedColorData(0, 0, 255, 0);// Green
+  strip.show();
   // btStop();
   // delay(100);
 
@@ -39,12 +39,7 @@ void setup() {
     pinMode(SENSOR_WRITE_PIN, OUTPUT);
     attachInterrupt(SENSOR_SWITCH_PIN, MagnetPass, RISING);
   
-    Intervale_1kmh  = round(Wheel / 0.27778 * 1000);
-    Intervale_24kmh = round(Wheel / 6.66667 * 1000);
-    Intervale_25kmh = round(Wheel / 6.94444 * 1000);
-    Intervale_30kmh = round(Wheel / 8.33333 * 1000);
-    Intervale_35kmh = round(Wheel / 9.72222 * 1000);
-    Intervale_40kmh = round(Wheel / 11.11111 * 1000);
+    Intervale_22kmh = round(Wheel / 6.16667 * 1000);
 
   // strip.setLedColorData(0, 0, 0, 0);// Black
   // strip.setLedColorData(0, 255, 255, 255);// White
@@ -63,18 +58,25 @@ void loop() {
   
   if (MagnetPassed){
     MagnetPassed = false;
-    if (LastWheelIntervale > Intervale_24kmh && Now-LastWriteTicks >= Intervale_24kmh) {   // entre O et 24km/h
-      // if (Now-LastWriteTicks >= Intervale_24kmh){ // on reproduit dessuite 
+    if (LastWheelIntervale > Intervale_22kmh && Now-LastWriteTicks >= Intervale_22kmh) {   // entre O et 22km/h
         NextTcheatIntervale = 0;
-      // } else {                                    // on reproduit dans quelque ms
-        // NextTcheatIntervale = Intervale_24kmh-(Now-LastWriteTicks);
-      // }
+        strip.setLedColorData(0, 0, 0, 255);// Blue
     } else {
-      NextTcheatIntervale = Intervale_24kmh;
+      // on simule 22km/h max
+      // NextTcheatIntervale = Intervale_22kmh;
+
+      strip.setLedColorData(0, 255, 0, 0);// Red
+      // on force l'affichage de la vitesse reelle en ignorant le 1er digit de vintaine  ex: 23,5 pour 35km/h et 24.1 pour 41km/h
+      NextTcheatIntervale = Wheel/((Wheel/((double)LastWheelIntervale/3600)/10+20)/3600);
+    Serial.printf(">> NextTcheatIntervale:%ims  ", NextTcheatIntervale);
+
     }
-    // SpeedColor(Now-LastWriteTicks);
+    strip.show();
     Serial.printf("Now:%i - NextTcheatIntervale:%ims  ", Now, NextTcheatIntervale);
-  } 
+  } else if (Now-LastWriteTicks > 4000){
+    strip.setLedColorData(0, 0, 255, 0);// Green
+  }
+
   
   NextWriteTicks = LastWriteTicks + NextTcheatIntervale;
 
