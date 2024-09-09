@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include "Freenove_WS2812_Lib_for_ESP32.h"
 
+// V1.0
+
 #define LEDS_PIN	21
 Freenove_ESP32_WS2812 strip = Freenove_ESP32_WS2812(1, LEDS_PIN, 0, TYPE_GRB);
 
@@ -60,21 +62,16 @@ void loop() {
     MagnetPassed = false;
     if (LastWheelIntervale > Intervale_22kmh && Now-LastWriteTicks >= Intervale_22kmh) {   // entre O et 22km/h
         NextTcheatIntervale = 0;
-        strip.setLedColorData(0, 0, 0, 255);// Blue
     } else {
       // on simule 22km/h max
       // NextTcheatIntervale = Intervale_22kmh;
 
-      strip.setLedColorData(0, 255, 0, 0);// Red
       // on force l'affichage de la vitesse reelle en ignorant le 1er digit de vintaine  ex: 23,5 pour 35km/h et 24.1 pour 41km/h
       NextTcheatIntervale = Wheel/((Wheel/((double)LastWheelIntervale/3600)/10+20)/3600);
-    Serial.printf(">> NextTcheatIntervale:%ims  ", NextTcheatIntervale);
-
     }
-    strip.show();
-    Serial.printf("Now:%i - NextTcheatIntervale:%ims  ", Now, NextTcheatIntervale);
-  } else if (Now-LastWriteTicks > 4000){
-    strip.setLedColorData(0, 0, 255, 0);// Green
+    SpeedColor(LastWheelIntervale);
+  } else if (Now-LastWriteTicks > 2000 && Now-LastWriteTicks < 2010){
+    strip.setLedColorData(0, 255, 0, 255);// Magenta
   }
 
   
@@ -82,32 +79,46 @@ void loop() {
 
   if (NextWriteTicks <= Now){ // il est temps de faire une impulsion
     Pulse(Now);
-    NextTcheatIntervale = Now + 15*60*1000; // 15min * 60sec * 1000ms
+    NextTcheatIntervale = Now + 15*60*1000; // on repousse le prochain Ticks dans 15min
   } else {
     delay(1);
   }
 }
 
 void SpeedColor(int Intervale){
-  int RealSpead = (Wheel/((double)Intervale/1000))*3.6;
   int R=0,V=0,B=0;
-  if (RealSpead < 1) {
-    // black
-  } else if (RealSpead <= 25) {
-    V=RealSpead*10+5;
-    B=255-RealSpead*10;
-  } else if (RealSpead <= 35) {
-    R=(RealSpead-25)*25+5;
-    V=255;
-  } else if (RealSpead <= 35) {
-    R=255;
-    V=(RealSpead-35)*25+5;
+  // strip.setLedColorData(0, 255, 255, 0);// Yellow
+  // strip.setLedColorData(0, 255, 153, 0);// Orange clair
+  // strip.setLedColorData(0, 255, 102, 0);// Orange Foncé
+  if (Intervale <= 170) { //50+
+    R= 255;
+    V= 0;
+  } else if (Intervale <= 189) {//45+
+    R= 255;
+    V= 64;
+  } else if (Intervale <= 212) {//40+
+    R= 255;
+    V= 128;
+  } else if (Intervale <= 243) {//35+
+    R= 255;
+    V= 192;
+  } else if (Intervale <= 283) {//30+
+    R= 255;
+    V= 255;
+  } else if (Intervale <= 340) {//25+
+    R= 192;
+    V= 255;
+  } else if (Intervale <= 425) {//20+
+    R= 128;
+    V= 255;
+  } else if (Intervale <= 566) {//15+
+    R= 64;
+    V= 255;
   } else {
-    R=255;
+    V=255;
   }
   strip.setLedColorData(0, R, V, B);
   strip.show();
-
 }
 void Pulse(unsigned long Now){
   double RealSpead = (Wheel/((double)LastWheelIntervale/1000))*3.6;
