@@ -53,13 +53,13 @@ void PulseGenerator::timer_init_task(void* context) {
 }
 
 void PulseGenerator::initialize_on_current_core() {
-    gpio_config_t gpio_config{};
-    gpio_config.pin_bit_mask = 1ULL << kMotorContactPin;
-    gpio_config.mode = GPIO_MODE_OUTPUT;
-    gpio_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    gpio_config.pull_up_en = GPIO_PULLUP_DISABLE;
-    gpio_config.intr_type = GPIO_INTR_DISABLE;
-    ESP_ERROR_CHECK(gpio_configure(&gpio_config));
+    gpio_config_t output_config{};
+    output_config.pin_bit_mask = 1ULL << kMotorContactPin;
+    output_config.mode = GPIO_MODE_OUTPUT;
+    output_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    output_config.pull_up_en = GPIO_PULLUP_DISABLE;
+    output_config.intr_type = GPIO_INTR_DISABLE;
+    ESP_ERROR_CHECK(gpio_config(&output_config));
     set_contact_closed(false);
 
     gptimer_config_t timer_config{};

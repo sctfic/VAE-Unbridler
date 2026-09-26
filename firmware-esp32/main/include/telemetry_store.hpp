@@ -13,7 +13,7 @@ class TelemetryStore {
     void set_stopped(uint16_t circumference_mm);
     void update_motor(uint32_t interval_us, uint16_t speed_centi_kmh, bool simulated);
     void record_emitted_pulse();
-    void IRAM_ATTR record_emitted_pulse_from_isr();
+    void record_emitted_pulse_from_isr();
     TelemetrySnapshot snapshot() const;
 
   private:

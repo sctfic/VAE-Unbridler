@@ -3,6 +3,10 @@
 #include "speed_model.hpp"
 
 int main() {
+    const auto standard = ebike::make_speed_plan(2360, 2220, 156752, false);
+    assert(!standard.simulated);
+    assert(standard.motor_interval_us == 156752);
+    assert(standard.motor_speed_centi_kmh == standard.wheel_speed_centi_kmh);
     // 2.360 m circumference. Values are the requested mapping examples.
     const auto at_31 = ebike::make_speed_plan(2360, 2220, 274000);
     assert(at_31.wheel_speed_centi_kmh == 3100);

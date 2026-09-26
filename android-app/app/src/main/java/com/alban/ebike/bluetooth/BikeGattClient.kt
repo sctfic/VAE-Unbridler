@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.alban.ebike.model.BikeTelemetry
 import com.alban.ebike.model.BleProtocol
@@ -30,6 +31,7 @@ class BikeGattClient(
     private val onReady: () -> Unit,
     private val onTelemetry: (BikeTelemetry) -> Unit,
     private val onDisconnected: () -> Unit,
+    private val onStatus: (String) -> Unit,
 ) {
     private val appContext = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
@@ -42,38 +44,69 @@ class BikeGattClient(
     private var scanning = false
     private var stopped = false
     private var isReady = false
+    private var configWritePending = false
+    private val reconnect = Runnable { scanAndConnect() }
+
+    private fun status(message: String) {
+        Log.i("EBikeBLE", message)
+        onStatus(message)
+    }
 
     fun start() {
         stopped = false
         scanAndConnect()
     }
 
+    @SuppressLint("MissingPermission")
     fun stop() {
         stopped = true
+        handler.removeCallbacks(reconnect)
         isReady = false
-        if (scanning) scanner?.stopScan(scanCallback)
+        if (hasBluetoothPermission()) {
+            runCatching {
+                if (scanning) scanner?.stopScan(scanCallback)
+                gatt?.close()
+            }
+        }
         scanning = false
-        gatt?.close()
         gatt = null
     }
 
     @SuppressLint("MissingPermission")
-    fun setWheelCircumference(circumferenceMm: Int) {
-        val characteristic = configCharacteristic ?: return
-        val currentGatt = gatt ?: return
-        characteristic.value = BleProtocol.encodeConfig(circumferenceMm)
-        currentGatt.writeCharacteristic(characteristic)
+    fun setWheelCircumference(circumferenceMm: Int, speedMode: Boolean? = null) {
+        handler.post {
+            val characteristic = configCharacteristic ?: return@post
+            val currentGatt = gatt ?: return@post
+            if (!isReady || configWritePending) {
+                status("Réglage occupé · réessayez")
+                return@post
+            }
+            characteristic.value = BleProtocol.encodeConfig(circumferenceMm, speedMode)
+            configWritePending = currentGatt.writeCharacteristic(characteristic)
+            if (!configWritePending) status("Échec de l’envoi du réglage · réessayez")
+        }
     }
 
     @SuppressLint("MissingPermission")
     private fun scanAndConnect() {
-        if (stopped || scanning || !hasBluetoothPermission() || adapter?.isEnabled != true || gatt != null) return
+        if (stopped || scanning || gatt != null) return
+        if (!hasBluetoothPermission()) {
+            status("Autorisation Bluetooth nécessaire")
+            scheduleReconnect()
+            return
+        }
+        if (adapter?.isEnabled != true) {
+            status("Activer le Bluetooth")
+            scheduleReconnect()
+            return
+        }
         scanner = adapter?.bluetoothLeScanner ?: return
         val filter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(BleProtocol.serviceUuid))
             .build()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         scanning = true
+        status("Recherche ESP32")
         scanner?.startScan(listOf(filter), settings, scanCallback)
     }
 
@@ -83,11 +116,13 @@ class BikeGattClient(
             if (stopped || gatt != null) return
             scanner?.stopScan(this)
             scanning = false
+            status("ESP32 détecté · connexion")
             gatt = result.device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         }
 
         override fun onScanFailed(errorCode: Int) {
             scanning = false
+            status("Recherche Bluetooth échouée ($errorCode) · nouvelle tentative")
             scheduleReconnect()
         }
     }
@@ -95,8 +130,15 @@ class BikeGattClient(
     private val gattCallback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (stopped || this@BikeGattClient.gatt !== gatt) {
+                gatt.close()
+                return
+            }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED) {
-                gatt.discoverServices()
+                configWritePending = false
+                status("ESP32 connecté · préparation")
+                // Telemetry is 32 bytes; the default ATT payload is only 20.
+                if (!gatt.requestMtu(64)) gatt.disconnect()
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 isReady = false
                 telemetryCharacteristic = null
@@ -104,12 +146,24 @@ class BikeGattClient(
                 gatt.close()
                 if (this@BikeGattClient.gatt === gatt) this@BikeGattClient.gatt = null
                 onDisconnected()
+                status("ESP32 déconnecté ($status)")
                 scheduleReconnect()
             }
         }
 
         @SuppressLint("MissingPermission")
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            if (stopped || this@BikeGattClient.gatt !== gatt) return
+            if (mtu >= 35) gatt.discoverServices()
+            else {
+                status("Connexion incompatible · paquet Bluetooth trop court")
+                gatt.disconnect()
+            }
+        }
+
+        @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            if (stopped || this@BikeGattClient.gatt !== gatt) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 gatt.disconnect()
                 return
@@ -125,14 +179,25 @@ class BikeGattClient(
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (stopped || this@BikeGattClient.gatt !== gatt) return
             if (descriptor.uuid == CLIENT_CONFIGURATION_UUID && status == BluetoothGatt.GATT_SUCCESS) {
                 isReady = true
+                status("ESP32 connecté")
                 onReady()
+            }
+        }
+
+        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            handler.post {
+                if (this@BikeGattClient.gatt !== gatt) return@post
+                configWritePending = false
+                if (status != BluetoothGatt.GATT_SUCCESS) status("Réglage refusé par l’ESP32 ($status)")
             }
         }
 
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            if (stopped || this@BikeGattClient.gatt !== gatt) return
             consumeTelemetry(characteristic.uuid, characteristic.value ?: return)
         }
 
@@ -141,6 +206,7 @@ class BikeGattClient(
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
         ) {
+            if (stopped || this@BikeGattClient.gatt !== gatt) return
             consumeTelemetry(characteristic.uuid, value)
         }
     }
@@ -150,7 +216,8 @@ class BikeGattClient(
     }
 
     private fun scheduleReconnect() {
-        if (!stopped) handler.postDelayed(::scanAndConnect, RECONNECT_DELAY_MS)
+        handler.removeCallbacks(reconnect)
+        if (!stopped) handler.postDelayed(reconnect, RECONNECT_DELAY_MS)
     }
 
     private fun hasBluetoothPermission(): Boolean =

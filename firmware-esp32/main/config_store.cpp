@@ -65,6 +65,19 @@ bool ConfigStore::update(const RuntimeConfig& config) {
     return true;
 }
 
+bool ConfigStore::speed_enabled() const {
+    portENTER_CRITICAL(&lock_);
+    const bool enabled = speed_enabled_;
+    portEXIT_CRITICAL(&lock_);
+    return enabled;
+}
+
+void ConfigStore::set_speed_enabled(bool enabled) {
+    portENTER_CRITICAL(&lock_);
+    speed_enabled_ = enabled;
+    portEXIT_CRITICAL(&lock_);
+}
+
 bool ConfigStore::is_valid(const RuntimeConfig& config) const {
     return config.circumference_mm >= 1000 && config.circumference_mm <= 4000 &&
            config.threshold_centi_kmh >= 500 && config.threshold_centi_kmh <= 5000;

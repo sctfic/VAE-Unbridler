@@ -21,6 +21,8 @@ object BleProtocol {
         return BikeTelemetry(
             wheelMoving = flags and 0x01 != 0,
             simulatedOutput = flags and 0x02 != 0,
+            speedMode = flags and 0x04 != 0,
+            modeSupported = flags and 0x08 != 0,
             sequence = buffer.short.toInt() and 0xffff,
             uptimeMs = buffer.int.toLong() and 0xffff_ffffL,
             wheelIntervalUs = buffer.int.toLong() and 0xffff_ffffL,
@@ -33,10 +35,10 @@ object BleProtocol {
         )
     }
 
-    fun encodeConfig(circumferenceMm: Int): ByteArray =
+    fun encodeConfig(circumferenceMm: Int, speedMode: Boolean? = null): ByteArray =
         ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).apply {
             put(protocolVersion.toByte())
-            put(0)
+            put((if (speedMode == null) 0 else if (speedMode) 3 else 2).toByte())
             putShort(circumferenceMm.toShort())
             putShort(defaultThresholdCentiKmh.toShort())
             putShort(0)
@@ -44,6 +46,8 @@ object BleProtocol {
 }
 
 data class BikeTelemetry(
+    val speedMode: Boolean = false,
+    val modeSupported: Boolean = false,
     val wheelMoving: Boolean = false,
     val simulatedOutput: Boolean = false,
     val sequence: Int = 0,

@@ -3,15 +3,21 @@
 #include "pulse_generator.hpp"
 #include "telemetry_store.hpp"
 #include "wheel_capture.hpp"
+#include "status_led.hpp"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
 
 extern "C" void app_main(void) {
-    ESP_ERROR_CHECK(nvs_flash_init());
-
     static ebike::ConfigStore config;
     static ebike::TelemetryStore telemetry;
+    ebike::status_led::begin(telemetry);
+    const esp_err_t nvs_result = nvs_flash_init();
+    if (nvs_result != ESP_OK) {
+        ESP_LOGE("main", "NVS initialization failed: %s", esp_err_to_name(nvs_result));
+        ebike::status_led::fault();
+        return;
+    }
     static ebike::PulseGenerator pulse(telemetry);
     static ebike::WheelCapture wheel(config, telemetry, pulse);
     static ebike::BleService ble(config, telemetry);

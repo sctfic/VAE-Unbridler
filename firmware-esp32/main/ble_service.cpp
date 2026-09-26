@@ -1,4 +1,5 @@
 #include "ble_service.hpp"
+#include "status_led.hpp"
 
 #include <cstring>
 
@@ -38,7 +39,12 @@ BleService::BleService(ConfigStore& config, TelemetryStore& telemetry)
 
 void BleService::begin() {
     instance_ = this;
-    nimble_port_init();
+    const esp_err_t init_result = nimble_port_init();
+    if (init_result != ESP_OK) {
+        ESP_LOGE(kTag, "BLE initialization failed: %s", esp_err_to_name(init_result));
+        status_led::fault();
+        return;
+    }
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_svc_gap_device_name_set("E-Bike RT");
@@ -73,6 +79,7 @@ void BleService::on_sync() {
     const int ensure_result = ble_hs_util_ensure_addr(0);
     if (ensure_result != 0 || ble_hs_id_infer_auto(0, &instance_->address_type_) != 0) {
         ESP_LOGE(kTag, "Unable to infer BLE address");
+        status_led::fault();
         return;
     }
     instance_->start_advertising();
@@ -102,14 +109,23 @@ void BleService::register_gatt() {
 void BleService::start_advertising() {
     ble_hs_adv_fields fields{};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    const char* name = ble_svc_gap_device_name();
-    fields.name = reinterpret_cast<const uint8_t*>(name);
-    fields.name_len = std::strlen(name);
-    fields.name_is_complete = 1;
     fields.uuids128 = &kServiceUuid;
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
-    ESP_ERROR_CHECK(ble_gap_adv_set_fields(&fields));
+    // Flags + UUID + name exceed the 31-byte advertising limit.
+    // Put the name in the scan response, preserving the UUID for Android filters.
+    ble_hs_adv_fields response{};
+    const char* name = ble_svc_gap_device_name();
+    response.name = reinterpret_cast<const uint8_t*>(name);
+    response.name_len = std::strlen(name);
+    response.name_is_complete = 1;
+    int fields_result = ble_gap_adv_set_fields(&fields);
+    if (fields_result == 0) fields_result = ble_gap_adv_rsp_set_fields(&response);
+    if (fields_result != 0) {
+        ESP_LOGE(kTag, "Unable to configure advertising: %d", fields_result);
+        status_led::fault();
+        return;
+    }
 
     ble_gap_adv_params parameters{};
     parameters.conn_mode = BLE_GAP_CONN_MODE_UND;
@@ -118,6 +134,9 @@ void BleService::start_advertising() {
                                          &BleService::gap_event, this);
     if (result != 0) {
         ESP_LOGE(kTag, "Unable to advertise: %d", result);
+        status_led::fault();
+    } else {
+        status_led::ready();
     }
 }
 
@@ -127,6 +146,7 @@ int BleService::gap_event(ble_gap_event* event, void* context) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status == 0) {
                 self->connection_handle_ = event->connect.conn_handle;
+                status_led::connected(true);
                 ESP_LOGI(kTag, "Android connected");
             } else {
                 self->start_advertising();
@@ -134,6 +154,7 @@ int BleService::gap_event(ble_gap_event* event, void* context) {
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
             self->connection_handle_ = kNoConnection;
+            status_led::connected(false);
             ESP_LOGI(kTag, "Android disconnected");
             self->start_advertising();
             return 0;
@@ -169,7 +190,8 @@ int BleService::read_telemetry(ble_gatt_access_ctxt* context) {
     BleTelemetryPacket packet{};
     packet.protocol_version = kProtocolVersion;
     packet.flags = static_cast<uint8_t>((state.wheel_moving ? 0x01 : 0) |
-                                        (state.simulated_output ? 0x02 : 0));
+                                        (state.simulated_output ? 0x02 : 0) | 0x08 |
+                                        (config_.speed_enabled() ? 0x04 : 0));
     packet.sequence = sequence_++;
     packet.uptime_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
     packet.wheel_interval_us = state.wheel_interval_us;
@@ -188,6 +210,7 @@ int BleService::read_config(ble_gatt_access_ctxt* context) {
     packet.protocol_version = kProtocolVersion;
     packet.circumference_mm = config.circumference_mm;
     packet.threshold_centi_kmh = config.threshold_centi_kmh;
+    packet.flags = 0x02 | (config_.speed_enabled() ? 0x01 : 0);
     return os_mbuf_append(context->om, &packet, sizeof(packet)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
@@ -197,13 +220,20 @@ int BleService::write_config(ble_gatt_access_ctxt* context) {
     }
     BleConfigPacket packet{};
     if (os_mbuf_copydata(context->om, 0, sizeof(packet), &packet) != 0 ||
-        packet.protocol_version != kProtocolVersion || packet.flags != 0) {
+        packet.protocol_version != kProtocolVersion || (packet.flags & ~0x03) != 0 ||
+        packet.reserved != 0 || packet.flags == 0x01) {
         return BLE_ATT_ERR_UNLIKELY;
     }
     RuntimeConfig updated{};
     updated.circumference_mm = packet.circumference_mm;
     updated.threshold_centi_kmh = packet.threshold_centi_kmh;
-    return config_.update(updated) ? 0 : BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+    const RuntimeConfig current = config_.snapshot();
+    if ((current.circumference_mm != updated.circumference_mm ||
+         current.threshold_centi_kmh != updated.threshold_centi_kmh) && !config_.update(updated)) {
+        return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+    }
+    if (packet.flags & 0x02) config_.set_speed_enabled((packet.flags & 0x01) != 0);
+    return 0;
 }
 
 void BleService::send_telemetry() {
@@ -215,7 +245,8 @@ void BleService::send_telemetry() {
     BleTelemetryPacket packet{};
     packet.protocol_version = kProtocolVersion;
     packet.flags = static_cast<uint8_t>((state.wheel_moving ? 0x01 : 0) |
-                                        (state.simulated_output ? 0x02 : 0));
+                                        (state.simulated_output ? 0x02 : 0) | 0x08 |
+                                        (config_.speed_enabled() ? 0x04 : 0));
     packet.sequence = sequence_++;
     packet.uptime_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
     packet.wheel_interval_us = state.wheel_interval_us;

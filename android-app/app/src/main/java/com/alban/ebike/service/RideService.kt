@@ -9,9 +9,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.alban.ebike.MainActivity
+import com.alban.ebike.companion.DashboardLauncher
+import com.alban.ebike.companion.BikeArrivalNotification
 import com.alban.ebike.bluetooth.BikeGattClient
 import com.alban.ebike.data.BikeSettingsStore
 import com.alban.ebike.data.RideStateStore
@@ -31,38 +34,85 @@ class RideService : Service() {
     private lateinit var gattClient: BikeGattClient
     private lateinit var locationEngine: RideLocationEngine
     private lateinit var settings: BikeSettingsStore
+    private lateinit var wakeLock: PowerManager.WakeLock
     private var notificationStarted = false
+    private var dashboardOpenedForConnection = false
+    private var locationStarted = false
+    private var associationPending = false
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         locationEngine = RideLocationEngine(this)
         settings = BikeSettingsStore(this)
+        wakeLock = getSystemService(PowerManager::class.java).newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$packageName:ride",
+        ).apply { setReferenceCounted(false) }
         gattClient = BikeGattClient(
             context = this,
             onReady = {
+                if (associationPending) return@BikeGattClient
                 RideStateStore.setBluetoothReady(true)
-                if (canRecordLocation()) locationEngine.start() // GPS starts automatically once BLE is live.
+                acquireWakeLock()
                 serviceScope.launch { gattClient.setWheelCircumference(settings.circumferenceMm.first()) }
-                updateNotification("Connecté — GPS actif")
+                updateNotification(statusMessage())
+                openDashboard()
             },
             onTelemetry = RideStateStore::ingestTelemetry,
+            onStatus = RideStateStore::setBluetoothStatus,
             onDisconnected = {
+                BikeArrivalNotification.dismiss(this)
                 RideStateStore.setBluetoothReady(false)
-                locationEngine.stop()
-                updateNotification("Recherche de l’ESP32")
+                if (!locationStarted) releaseWakeLock()
+                dashboardOpenedForConnection = false
+                updateNotification(statusMessage())
             },
         )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startAsForeground()
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val allowLocation = canRecordLocation(intent?.getBooleanExtra(EXTRA_VISIBLE, false) == true)
+        if (!startAsForeground(allowLocation)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_ASSOCIATE) {
+            associationPending = true
+            // The single-connection peripheral must advertise for Android's
+            // association picker; release our direct GATT connection first.
+            gattClient.stop()
+            RideStateStore.setBluetoothReady(false)
+            dashboardOpenedForConnection = false
+            updateNotification("Association ESP32 en cours")
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_RESUME) associationPending = false
+        if (associationPending) return START_STICKY
         gattClient.start()
+        if (allowLocation) {
+            locationEngine.start()
+            locationStarted = true
+            acquireWakeLock()
+        } else {
+            RideStateStore.setGpsStatus("Autorisation GPS nécessaire · ouvrir l’application")
+        }
+        updateNotification(statusMessage())
         when (intent?.action) {
             ACTION_SET_CIRCUMFERENCE -> {
                 intent.getIntExtra(EXTRA_CIRCUMFERENCE_MM, -1)
                     .takeIf { it in 1000..4000 }
-                    ?.let(gattClient::setWheelCircumference)
+                    ?.let { gattClient.setWheelCircumference(it) }
+            }
+            ACTION_TOGGLE_MODE -> {
+                val state = RideStateStore.state.value
+                if (state.bluetoothReady && state.modeSupported) serviceScope.launch {
+                    gattClient.setWheelCircumference(settings.circumferenceMm.first(), !state.speedMode)
+                }
             }
             else -> Unit
         }
@@ -70,26 +120,40 @@ class RideService : Service() {
     }
 
     override fun onDestroy() {
+        BikeArrivalNotification.dismiss(this)
         gattClient.stop()
         locationEngine.stop()
+        RideStateStore.setBluetoothReady(false)
+        RideStateStore.setBluetoothStatus("Service arrêté")
+        RideStateStore.setGpsStatus("GPS arrêté")
+        releaseWakeLock()
         serviceJob.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun startAsForeground() {
-        if (notificationStarted) return
+    private fun startAsForeground(allowLocation: Boolean): Boolean {
+        var serviceTypes = 0
+        if (android.os.Build.VERSION.SDK_INT < 31 ||
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        }
+        if (allowLocation) serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        if (serviceTypes == 0) return false
         notificationStarted = true
-        var serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-        if (canRecordLocation()) serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
             notification("Recherche de l’ESP32"),
             serviceTypes,
         )
+        return true
     }
+
+    private fun statusMessage(): String =
+        (if (locationStarted) "GPS actif" else "GPS en attente") +
+            (if (RideStateStore.state.value.bluetoothReady) " · ESP32 connecté" else " · recherche ESP32")
 
     private fun updateNotification(message: String) {
         if (!notificationStarted) return
@@ -110,6 +174,10 @@ class RideService : Service() {
             ),
         )
         .setOngoing(true)
+        .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Arrêter", PendingIntent.getService(
+            this, 1, Intent(this, RideService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        ))
         .build()
 
     private fun createNotificationChannel() {
@@ -117,30 +185,65 @@ class RideService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun canRecordLocation(): Boolean {
+    private fun canRecordLocation(fromVisibleActivity: Boolean): Boolean {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
             PackageManager.PERMISSION_GRANTED) return false
         // Automatic start from a companion callback needs all-the-time location
         // permission on Android 10+. The onboarding screen asks for it once.
-        return android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q ||
+        return fromVisibleActivity || locationStarted ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
     }
 
+    @android.annotation.SuppressLint("WakelockTimeout")
+    private fun acquireWakeLock() {
+        if (!wakeLock.isHeld) wakeLock.acquire()
+    }
+
+    private fun releaseWakeLock() {
+        if (wakeLock.isHeld) wakeLock.release()
+    }
+
+    private fun openDashboard() {
+        if (dashboardOpenedForConnection) return
+        dashboardOpenedForConnection = DashboardLauncher.openIfUnlocked(this)
+    }
+
     companion object {
+        private const val ACTION_TOGGLE_MODE = "com.alban.ebike.TOGGLE_MODE"
+        fun toggleMode(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)
+                .setAction(ACTION_TOGGLE_MODE).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
+        }
         private const val CHANNEL_ID = "ebike_ride"
         private const val NOTIFICATION_ID = 41
         private const val ACTION_SET_CIRCUMFERENCE = "com.alban.ebike.SET_CIRCUMFERENCE"
         private const val EXTRA_CIRCUMFERENCE_MM = "circumference_mm"
+        private const val EXTRA_VISIBLE = "visible_activity"
+        private const val ACTION_STOP = "com.alban.ebike.STOP"
+        private const val ACTION_ASSOCIATE = "com.alban.ebike.ASSOCIATE"
+        private const val ACTION_RESUME = "com.alban.ebike.RESUME_AFTER_ASSOCIATION"
+
+        fun resumeAfterAssociation(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)
+                .setAction(ACTION_RESUME).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
+        }
+
+        fun prepareAssociation(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)
+                .setAction(ACTION_ASSOCIATE).putExtra(EXTRA_VISIBLE, true))
+        }
 
         fun start(context: Context) {
             val intent = Intent(context, RideService::class.java)
+                .putExtra(EXTRA_VISIBLE, context is android.app.Activity)
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
 
         fun setWheelCircumference(context: Context, circumferenceMm: Int) {
             val intent = Intent(context, RideService::class.java).apply {
                 action = ACTION_SET_CIRCUMFERENCE
+                putExtra(EXTRA_VISIBLE, context is android.app.Activity)
                 putExtra(EXTRA_CIRCUMFERENCE_MM, circumferenceMm)
             }
             androidx.core.content.ContextCompat.startForegroundService(context, intent)

@@ -31,9 +31,10 @@ void WheelCapture::begin() {
     input.pull_down_en = GPIO_PULLDOWN_DISABLE;
     // A reed switch connected to local GND produces a falling edge when it closes.
     input.intr_type = GPIO_INTR_NEGEDGE;
-    ESP_ERROR_CHECK(gpio_configure(&input));
+    ESP_ERROR_CHECK(gpio_config(&input));
     ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_IRAM));
-    ESP_ERROR_CHECK(gpio_isr_handler_add(kWheelSensorPin, &WheelCapture::gpio_isr, this));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(static_cast<gpio_num_t>(kWheelSensorPin),
+                                         &WheelCapture::gpio_isr, this));
 
     BaseType_t created = xTaskCreatePinnedToCore(&WheelCapture::task_entry, "wheel_rt", 4096, this,
                                                   configMAX_PRIORITIES - 2, nullptr, 1);
@@ -57,6 +58,12 @@ void WheelCapture::task_entry(void* context) {
 
 void WheelCapture::task() {
     while (true) {
+        const bool speed_mode = config_.speed_enabled();
+        if (!speed_mode && telemetry_.snapshot().simulated_output) {
+            // Cancel synthetic deadlines on the real-time core, never from BLE.
+            pulse_.stop();
+            telemetry_.update_motor(0, 0, false);
+        }
         int64_t edge_us = 0;
         if (xQueueReceive(edge_queue_, &edge_us, kTaskWaitTicks) == pdTRUE) {
             handle_edge(edge_us);
@@ -77,6 +84,7 @@ void WheelCapture::handle_edge(int64_t edge_us) {
     if (last_edge_us_ == 0) {
         last_edge_us_ = edge_us;
         stopped_ = false;
+        if (!config_.speed_enabled()) pulse_.emit_passthrough(0, 0);
         return;
     }
 
@@ -95,7 +103,7 @@ void WheelCapture::handle_edge(int64_t edge_us) {
 
     const RuntimeConfig config = config_.snapshot();
     const SpeedPlan plan = make_speed_plan(config.circumference_mm, config.threshold_centi_kmh,
-                                           last_interval_us_);
+                                           last_interval_us_, config_.speed_enabled());
     telemetry_.update_wheel(last_interval_us_, plan.wheel_speed_centi_kmh, revolutions_,
                             config.circumference_mm);
 

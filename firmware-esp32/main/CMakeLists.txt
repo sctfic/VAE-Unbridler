@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "main.cpp"
+        "status_led.cpp"
         "config_store.cpp"
         "telemetry_store.cpp"
         "pulse_generator.cpp"
