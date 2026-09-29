@@ -3,6 +3,8 @@ android-app/.gradle/
 android-app/.kotlin/
 android-app/**/build/
 android-app/local.properties
+android-app/signing.properties
+android-app/keystore/
 
 # ESP-IDF
 firmware-esp32/build/
