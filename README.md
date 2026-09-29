@@ -9,8 +9,11 @@ Le protocole commun est documenté dans [`BLE_PROTOCOL.md`](BLE_PROTOCOL.md) et 
 
 ## Fonctions disponibles
 
+Le [cockpit holographique](COCKPIT.md) affiche les grandes valeurs sur une scène 3D native,
+avec relief réel filaire, courbes de niveau, cadrage automatique et historique local du trajet.
+
 - vitesse GPS principale animée, vitesse de roue et vitesse transmise au moteur ;
-- profil d'altitude sur les 500 derniers mètres et estimation de la pente ; l’axe horizontal suit la distance GPS validée (défilement proportionnel au déplacement, figé à l’arrêt), avec une échelle verticale automatique ;
+- profil d'altitude 500 m / complet / 2 km (un toucher pour changer) et pente sur les 20 derniers mètres du profil ; l’axe horizontal suit la distance GPS validée, profil et pente figés à l’arrêt ;
 - distance et trace GPS 3D orientée selon les derniers points ;
 - GPS, altitude et tracé actifs dès l’ouverture de l’application, même sans ESP32 ;
 - circonférence de roue ou diamètre réglable depuis l'application et enregistré dans l'ESP32 ;
@@ -19,11 +22,11 @@ Le protocole commun est documenté dans [`BLE_PROTOCOL.md`](BLE_PROTOCOL.md) et 
 
 ## Sécurité électrique importante
 
-### Modes Standard / Speed
+### Modes Standard / Turbo
 
-Un double toucher dans le tableau de bord (hors boutons de réglage) bascule le mode
+Un double toucher dans la zone des vitesses (hors boutons de réglage) bascule le mode
 si l’ESP32 est connecté et dispose du firmware compatible. **Standard** (halo et anneau
-bleus) transmet les impulsions au rythme réel ; **Speed** (rouges) active la simulation
+bleus) transmet les impulsions au rythme réel ; **Turbo** (rouges) active la simulation
 au-dessus du seuil configuré. Le nom est affiché dans le cadran et confirmé par la
 télémétrie, indépendamment de la vitesse instantanée. Sans connexion, le mode est inconnu.
 L’ESP32 démarre toujours en Standard ; une déconnexion Bluetooth conserve le mode en cours.
@@ -71,7 +74,9 @@ Les archives n’existent qu’après rotation. Ces fichiers restent locaux, san
 
 Le GPS démarre à l’ouverture de l’application une fois la localisation précise autorisée. L’altitude, le profil, la distance et le tracé continuent sans ESP32 et lors d’une déconnexion Bluetooth. Seules les vitesses de roue et moteur dépendent de la carte. La notification persistante permet d’arrêter le suivi. Les points peu précis (plus de 20 m d’incertitude) sont ignorés ; à l’intérieur, il peut être nécessaire de sortir pour obtenir un tracé. Une altitude absente n’est pas affichée comme une altitude mesurée de zéro.
 
-Le bouton **ESP32** est gris hors connexion et cyan gras lorsqu’il est connecté. La vitesse GPS utilise la mesure de vitesse fournie par Android, avec une incertitude maximale de 1 m/s ; elle n’est plus calculée à partir de deux positions qui peuvent dériver. Le démarrage du mouvement demande trois mesures cohérentes sur au moins 1,5 seconde et un déplacement supérieur à l’incertitude cumulée des positions. Un seuil conservateur de 0,7 m/s après déduction de deux fois l’incertitude évite les petites vitesses parasites ; cela peut retarder le départ et masquer les mouvements très lents. La distance et le tracé ne progressent que lorsque le mouvement est confirmé. La vitesse affiche **—** si elle est incertaine ou sans mesure fraîche depuis quatre secondes, et **0** lorsqu’un arrêt est confirmé. Ce filtre ne remplace pas un essai réel à l’extérieur.
+Le bouton **ESP32** est gris hors connexion et cyan gras lorsqu’il est connecté. La vitesse GPS utilise la mesure native Android, jamais la différence de deux positions bruitées. Le départ demande trois mesures sur au moins 1,5 seconde et un déplacement supérieur à l’incertitude cumulée. L’incertitude maximale vaut 1 m/s au départ, puis 30 % de la vitesse (bornée entre 1 et 3 m/s) en mouvement. Une médiane de trois mesures et un filtre exponentiel court atténuent les pics. Un arrêt bien mesuré remet immédiatement le filtre à zéro ; les petites vitesses ambiguës demandent deux mesures consécutives. Ces seuils peuvent masquer les déplacements très lents.
+
+Une vitesse temporairement incertaine est maintenue au maximum deux secondes, avec la mention **maintien** dans le diagnostic, puis devient indisponible (repli roue connectée, sinon **—**). Sans nouveau fix, le délai de péremption reste de quatre secondes. La trace et la distance sont validées séparément : des positions cohérentes continuent le parcours même sans vitesse native fiable. Un déplacement positionnel doit dépasser l’incertitude sur une fenêtre bornée ; un arrêt confirmé fige la distance. Seuls une perte de positions de plus de quatre secondes, un point invalide ou un saut excessif créent une interruption. Le journal GPS indique désormais `trace`, `append`, `segmentStart` et `stepM` pour diagnostiquer chaque décision. Ce filtre ne remplace pas un essai réel à l’extérieur.
 
 Après association, la présence de l’ESP32 peut aussi démarrer le service ; pour ce démarrage en arrière-plan, accorder la localisation « Toujours autoriser ». Android peut empêcher une application d'ouvrir une fenêtre depuis l'arrière-plan selon la version du système ou le fabricant ; dans ce cas, la notification persistante **E-Bike** ouvre le tableau de bord en un toucher.
 

@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
                 state = rideState,
                 circumferenceMm = circumference,
                 onAssociate = ::associateBike,
+                onResetRide = { RideStateStore.resetRide() },
                 onToggleMode = {
                     when {
                         !rideState.bluetoothReady -> Toast.makeText(this, "Connectez l’ESP32 pour changer de mode", Toast.LENGTH_SHORT).show()
@@ -110,7 +111,13 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            show(WindowInsetsCompat.Type.statusBars())
+            hide(WindowInsetsCompat.Type.navigationBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
     }
 
     private fun requestInitialPermissions() {

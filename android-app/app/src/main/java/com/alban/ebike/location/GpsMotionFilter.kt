@@ -13,15 +13,25 @@ class GpsMotionFilter {
     private var previousTime = -1L
     private var confirmations = 0
     private var moving = false
+    private var lastTrustedMs = -1L
+    private var filteredSpeed = 0f
+    private var lowSpeedCount = 0
+    private val speeds = ArrayDeque<Float>()
 
     fun reset() {
         anchor = null
         previousTime = -1L
         confirmations = 0
         moving = false
+        lastTrustedMs = -1L
+        filteredSpeed = 0f
+        lowSpeedCount = 0
+        speeds.clear()
     }
 
     fun accept(fix: Fix, nowMs: Long): Result {
+        // Late/duplicate callbacks must not invalidate a more recent accepted fix.
+        if (fix.timeMs <= previousTime) return Result(0f, false, moving, "fix désordonné")
         if (nowMs - fix.timeMs !in 0L..4000L || fix.timeMs <= previousTime ||
             !fix.accuracyM.isFinite() || fix.accuracyM !in 0f..20f ||
             !fix.latitude.isFinite() || fix.latitude !in -90.0..90.0 ||
@@ -34,36 +44,63 @@ class GpsMotionFilter {
             })
         }
         if (previousTime >= 0 && fix.timeMs - previousTime > 4000) reset()
+        val dt = if (previousTime >= 0) (fix.timeMs - previousTime) / 1000f else 1f
         previousTime = fix.timeMs
         val speed = fix.speedMps
         val error = fix.speedAccuracyMps
         if (speed == null || error == null || !speed.isFinite() || !error.isFinite() ||
-            speed !in 0f..33.333f || error !in 0f..1f) {
-            anchor = fix
-            confirmations = 0
-            moving = false
-            return Result(0f, false, false, when {
+            speed !in 0f..33.333f || error < 0f ||
+            error > (if (moving) max(1f, speed * .30f).coerceAtMost(3f) else 1f)) {
+            if (!moving) { anchor = fix; confirmations = 0 }
+            return uncertain(fix, when {
                 speed == null -> "vitesse absente"
                 error == null -> "incertitude vitesse absente"
-                error > 1f -> "incertitude vitesse >1m/s"
+                error > 1f -> "vitesse peu précise"
                 else -> "vitesse invalide"
             })
         }
-        // Require the lower confidence bound to exceed 0.7 m/s (~2.5 km/h).
-        if (speed - 2 * error < 0.7f) {
+        // Hysteresis: conservative departure, immediate well-measured stop;
+        // low but ambiguous speeds need two consecutive readings while moving.
+        val low = speed - 2 * error < if (moving) .35f else .7f
+        lowSpeedCount = if (low && speed < 1.4f) lowSpeedCount + 1 else 0
+        if (speed <= .5f && error <= 1f || !moving && low || moving && lowSpeedCount >= 2) {
             anchor = fix
             confirmations = 0
             moving = false
+            filteredSpeed = 0f
+            speeds.clear()
+            lastTrustedMs = fix.timeMs
             return Result(0f, true, false, "arrêt/seuil bas")
         }
+        if (moving && low) return uncertain(fix, "mouvement incertain")
         if (anchor == null) anchor = fix
         confirmations++
         val origin = anchor!!
         val displacement = distanceM(origin, fix)
         if (!moving && confirmations >= 3 && fix.timeMs - origin.timeMs >= 1500 &&
             displacement > max(3.0, (origin.accuracyM + fix.accuracyM).toDouble())) moving = true
-        return if (moving) Result(speed * 3.6f, true, true, "mouvement confirmé")
-            else Result(0f, false, false, "confirmation $confirmations/3 · déplacement ${displacement.toInt()}m")
+        if (!moving) return Result(0f, false, false, "confirmation $confirmations/3 · déplacement ${displacement.toInt()}m")
+        // Three-point median removes isolated spikes; time/accuracy-weighted EMA
+        // provides a short smoothing horizon without delaying a confirmed stop.
+        if (lastTrustedMs < 0 || fix.timeMs - lastTrustedMs > 3000) speeds.clear()
+        speeds.addLast(speed)
+        while (speeds.size > 3) speeds.removeFirst()
+        val sorted = speeds.sorted()
+        val median = if (sorted.size == 2) (sorted[0] + sorted[1]) / 2 else sorted[sorted.size / 2]
+        val tau = 0.7f + error.coerceAtMost(2f) * .35f
+        val alpha = (1 - exp(-dt / tau)).coerceIn(0f, 1f)
+        filteredSpeed = if (speeds.size == 1) median else filteredSpeed + alpha * (median - filteredSpeed)
+        lastTrustedMs = fix.timeMs
+        return Result(filteredSpeed * 3.6f, true, true, "vitesse lissée · mouvement confirmé")
+    }
+
+    private fun uncertain(fix: Fix, reason: String): Result {
+        val age = fix.timeMs - lastTrustedMs
+        if (moving && lastTrustedMs >= 0 && age in 0..2000)
+            return Result(filteredSpeed * 3.6f, true, true, "maintien ${age / 1000}s · $reason")
+        // Keep movement memory briefly, but never display a stale speed indefinitely.
+        if (age > 6000) { moving = false; confirmations = 0; speeds.clear(); anchor = fix }
+        return Result(0f, false, moving, reason)
     }
 
     private fun distanceM(a: Fix, b: Fix): Double {

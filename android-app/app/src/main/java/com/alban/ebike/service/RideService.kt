@@ -42,6 +42,7 @@ class RideService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        com.alban.ebike.data.RideTrackJournal.initialize(this)
         createNotificationChannel()
         locationEngine = RideLocationEngine(this)
         settings = BikeSettingsStore(this)

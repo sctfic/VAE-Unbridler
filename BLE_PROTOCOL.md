@@ -12,7 +12,7 @@ The ESP32 is a BLE GATT peripheral named `E-Bike RT`. UUIDs are stable and littl
 
 ```text
 u8  protocol_version       // 1
-u8  flags                  // bit 0: moving, bit 1: simulated output, bit 2: Speed enabled, bit 3: mode control supported
+u8  flags                  // bit 0: moving, bit 1: simulated output, bit 2: Turbo enabled, bit 3: mode control supported
 u16 sequence
 u32 uptime_ms
 u32 wheel_interval_us      // 0 when stopped / unknown
@@ -29,7 +29,7 @@ u16 reserved
 
 ```text
 u8  protocol_version       // 1
-u8  flags                  // 0: preserve mode (legacy), 2: Standard, 3: Speed; other values rejected
+u8  flags                  // 0: preserve mode (legacy), 2: Standard, 3: Turbo; other values rejected
 u16 circumference_mm       // accepted range: 1000..4000 mm
 u16 threshold_centi_kmh    // default 2220 = 22.20 km/h
 u16 reserved
@@ -39,8 +39,8 @@ Wheel settings are stored in NVS. The mode is RAM-only: Standard on every ESP32 
 preserved across Bluetooth disconnects. Configuration reads return flags 2 or 3.
 Telemetry bit 3 identifies firmware with mode control; never send mode commands to
 legacy firmware. The app displays the mode reported in telemetry, not an optimistic
-local toggle. Speed may be enabled without simulation being active (stopped or below
+local toggle. Turbo may be enabled without simulation being active (stopped or below
 threshold). Standard cancels synthetic scheduling on the real-time task within its
 100 ms polling period; a contact already closed finishes its normal 2 ms pulse.
-Speed starts applying at the next valid wheel measurement. Timing must be verified
+Turbo starts applying at the next valid wheel measurement. Timing must be verified
 on a bench after flashing; the UI acknowledgement reports the requested firmware mode.

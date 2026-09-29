@@ -1,12 +1,17 @@
 package com.alban.ebike.model
 
-data class AltitudePoint(val distanceM: Double, val altitudeM: Float)
+data class AltitudePoint(val distanceM: Double, val altitudeM: Float, val segmentStart: Boolean = false)
 
 data class TrackPoint(
     val latitude: Double,
     val longitude: Double,
     val altitudeM: Float,
     val timeMs: Long,
+    val distanceM: Double = 0.0,
+    val segmentStart: Boolean = false,
+    val speedKmh: Float? = null,
+    val gradePercent: Float? = null,
+    val altitudeValid: Boolean = true,
 )
 
 data class RideUiState(
@@ -21,9 +26,11 @@ data class RideUiState(
     val motorSpeedKmh: Float = 0f,
     val altitudeM: Float? = null,
     val inclinePercent: Float = 0f,
+    val inclineValid: Boolean = false,
     val distanceM: Double = 0.0,
     val profile: List<AltitudePoint> = emptyList(),
     val track: List<TrackPoint> = emptyList(),
+    val position: TrackPoint? = null,
     val simulatedOutput: Boolean = false,
     val lastGpsAccuracyM: Float? = null,
 ) {
