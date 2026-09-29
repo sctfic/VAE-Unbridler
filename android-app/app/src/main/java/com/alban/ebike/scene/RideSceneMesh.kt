@@ -9,7 +9,8 @@ data class SceneMesh(val surface: FloatArray, val grid: FloatArray, val contours
     val route: FloatArray, val marker: FloatArray, val frame: List<WorldPoint>,
     val center: WorldPoint, val heading: Double, val speedMode: Boolean,
     val routeColors: FloatArray = floatArrayOf(),
-    val roads: FloatArray = floatArrayOf(), val waterways: FloatArray = floatArrayOf())
+    val roads: FloatArray = floatArrayOf(), val waterways: FloatArray = floatArrayOf(),
+    val paths: FloatArray = floatArrayOf(), val buildings: FloatArray = floatArrayOf())
 
 object RideSceneMesh {
     const val VERTICAL_EXAGGERATION = 1.8

@@ -1,4 +1,14 @@
-# E-Bike — télémétrie et simulateur d'impulsions
+# E-BikeCockpit — télémétrie et simulateur d'impulsions
+
+Version Android **0.3.1** — auteur **Lopez Alban**.
+
+Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
+cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
+Les bâtiments sont représentés par leurs contours au sol (ways OpenStreetMap),
+sans hauteur inventée ; bâtiments et chemins sont omis dans la vue d'ensemble
+pour préserver la lisibilité. Les données OSM enrichies utilisent un cache v2 :
+le premier chargement peut nécessiter Internet, les suivants réutilisent le cache.
+Changer une case ne déclenche pas de nouveau téléchargement.
 
 Le projet contient deux sous-projets indépendants :
 

@@ -17,7 +17,7 @@ import kotlin.math.abs
 
 /** Cache-first OSM ways. Never blocks or replaces the IGN terrain. */
 class MapFeatureRepository(context: Context) {
-    private val cache = File(context.filesDir, "map-features-v1")
+    private val cache = File(context.filesDir, "map-features-v2")
     private var memory: MapFeatureArea? = null
     private var retryAt = 0L
 
@@ -44,10 +44,11 @@ class MapFeatureRepository(context: Context) {
         val ne = GeoFrame.coordinate(fetchHalf, fetchHalf, lat, lon)
         if (sw.second >= ne.second) return@withContext null
         val bbox = "${sw.first},${sw.second},${ne.first},${ne.second}"
-        val roads = if (detailed) "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|cycleway|track|path|footway|.*_link"
+        val roads = if (detailed) "motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|cycleway|track|path|footway|steps|bridleway|.*_link"
             else "motorway|trunk|primary|secondary|tertiary|unclassified|.*_link"
         val waterways = if (detailed) "river|stream|canal|drain|ditch" else "river|canal"
-        val query = "[out:json][timeout:25];(way[highway~\"^($roads)$\"]($bbox);way[waterway~\"^($waterways)$\"]($bbox););out tags geom($bbox);"
+        val buildings = if (detailed) "way[building][building!=no]($bbox);" else ""
+        val query = "[out:json][timeout:25];(way[highway~\"^($roads)$\"]($bbox);way[waterway~\"^($waterways)$\"]($bbox);$buildings);out tags geom($bbox);"
         try {
             val json = network.withLock {
                 delay((nextRequestAt - SystemClock.elapsedRealtime()).coerceAtLeast(0))
@@ -92,11 +93,13 @@ class MapFeatureRepository(context: Context) {
             val tags = way.optJSONObject("tags") ?: continue
             if (tags.optString("tunnel") in listOf("yes", "culvert", "building_passage")) continue
             val water = tags.has("waterway")
+            val building = tags.has("building") && !tags.has("highway") && !water
+            val path = tags.optString("highway") in listOf("cycleway", "track", "path", "footway", "steps", "bridleway")
             val major = if (water) tags.optString("waterway") in listOf("river", "canal")
-                else tags.optString("highway") !in listOf("service", "cycleway", "track", "path", "footway")
+                else !building && !path && tags.optString("highway") != "service"
             val geometry = way.optJSONArray("geometry") ?: continue
             var points = ArrayList<MapCoordinate>()
-            fun flush() { if (points.size > 1) result.add(MapFeature(water, major, points)); points = ArrayList() }
+            fun flush() { if (points.size > 1) result.add(MapFeature(water, major, points, path, building)); points = ArrayList() }
             for (n in 0 until geometry.length()) {
                 val node = geometry.optJSONObject(n)
                 val lat = node?.optDouble("lat", Double.NaN) ?: Double.NaN

@@ -1,0 +1,7 @@
+# Guidon + relief holographique — v2
+
+Outil : ImageGen intégré. Modification de `03-guidon-relief.png`.
+Proposition enregistrée dans `03-guidon-relief-v2.png`, sans remplacement de l’icône Android.
+Interprétation : « bidon » compris comme « guidon ».
+
+Use case: precise-object-edit. Asset type: premium E-BikeCockpit app icon concept, revision of image 1 (edit target). Preserve the rider-facing symmetric handlebar + wireframe mountainous terrain concept, midnight navy / titanium / luminous cyan palette and high-end finish. Simplify the handlebar dramatically into a clean sculpted curved bar, simple smooth grips, and a minimal short central stem: remove cables, shifters, brake assemblies, bolts, front fork and long bicycle frame. Lower the handlebar into the lower third of the square. Make the mountainous wireframe terrain a visibly floating translucent hologram projected from the center of the handlebar: luminous cyan emitter integrated into stem, subtle upward fan of light connecting emitter to hovering terrain, bright crisp cyan contour lines and sparse wire mesh, soft controlled blue glow, a winding luminous trail across the terrain. Terrain should occupy the central and upper part with clear depth and volume, not look like a solid landscape behind a bike. Composition should be clean and legible as an app icon, complete handlebar ends visible with safe padding, no cropping. Full square dark navy background, no text, no watermark, no phone mockup, no water bottle. One single revised icon.

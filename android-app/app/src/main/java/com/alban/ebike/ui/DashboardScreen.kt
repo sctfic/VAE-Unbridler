@@ -95,11 +95,12 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
            }
             Box(Modifier.width(1.dp).fillMaxHeight().background(accent.copy(alpha = .25f)))
             Box(Modifier.weight(.6f).fillMaxHeight().clipToBounds()) {
-                Column(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(end = 120.dp)
+                Column(Modifier.align(Alignment.TopStart).fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Metric("ALTITUDE", state.altitudeM?.let { "%.0f".format(it) } ?: "—", "m", Modifier.weight(1f).clickable { selectMetric(RouteMetric.ALTITUDE) }, Alignment.Start)
-                        Metric("PENTE", if (state.inclineValid) "%+.1f".format(state.inclinePercent) else "—", "%", Modifier.weight(1f).offset(x = (-12).dp).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally)
+                        Metric("PENTE", if (state.inclineValid) "%+.1f".format(state.inclinePercent) else "—", "%", Modifier.weight(1f).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally)
+                        Spacer(Modifier.weight(1f))
                     }
                     if (legendVisible) {
                     val range = RouteColors.range(state.track, metric)
@@ -120,7 +121,8 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }
           }
           Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.2f)
-              .background(Ink.copy(alpha = .25f)).clickable { profileMode = (profileMode + 1) % 3 }) {
+              .background(Brush.verticalGradient(listOf(Ink.copy(alpha = .55f), Ink.copy(alpha = .92f))))
+              .clickable { profileMode = (profileMode + 1) % 3 }) {
               AltitudeRibbon(state, accent, Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 2.dp), profileWindow)
               ProfileFooter(profileMode, accent, { sourcesOpen = true },
                   Modifier.align(Alignment.BottomCenter).padding(horizontal = 14.dp))
@@ -133,7 +135,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                     Text("●  ESP32", color = if (state.bluetoothReady) Cyan else Color.Gray,
                         fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
                 }
-                Text("E–BIKE  /  COCKPIT", color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
+                Text("E-BikeCockpit", color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
                 TextButton(onClick = { settingsOpen = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp)
                 }
@@ -264,8 +266,8 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text("km/h", color = Muted, fontSize = 13.sp, letterSpacing = 2.sp,
                 modifier = Modifier.offset(y = (-8).dp))
         }
-        SmallSpeed("MOTEUR", state.motorSpeedKmh, accent, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 14.dp))
-        SmallSpeed("ROUE", state.wheelSpeedKmh, Cyan, Modifier.align(Alignment.TopStart).padding(top = 8.dp, start = 14.dp), Alignment.Start)
+        SmallSpeed("MOTEUR", state.motorSpeedKmh, accent, Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 14.dp))
+        SmallSpeed("ROUE", state.wheelSpeedKmh, Cyan, Modifier.align(Alignment.TopStart).padding(top = 1.dp, start = 14.dp), Alignment.Start)
     }
 }
 
@@ -273,7 +275,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     alignment: Alignment.Horizontal = Alignment.End) {
     Column(modifier, horizontalAlignment = alignment) {
         Text(label, color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
-        Text("%.1f".format(value), color = color, fontSize = 34.sp, fontWeight = FontWeight.Light, maxLines = 1)
+        Text(if (value.isFinite()) value.roundToInt().toString() else "—", color = color, fontSize = 39.sp, fontWeight = FontWeight.Medium, maxLines = 1)
         Text("km/h", color = Muted.copy(alpha = .7f), fontSize = 9.sp,
             modifier = Modifier.offset(y = (-5).dp))
     }

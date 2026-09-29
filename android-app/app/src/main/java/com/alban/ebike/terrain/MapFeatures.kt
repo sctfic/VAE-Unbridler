@@ -6,10 +6,12 @@ import com.alban.ebike.scene.WorldPoint
 import kotlin.math.*
 
 data class MapCoordinate(val latitude: Double, val longitude: Double)
-data class MapFeature(val water: Boolean, val major: Boolean, val points: List<MapCoordinate>)
+data class MapFeature(val water: Boolean, val major: Boolean, val points: List<MapCoordinate>,
+    val path: Boolean = false, val building: Boolean = false)
 data class MapFeatureArea(val latitude: Double, val longitude: Double, val halfSizeM: Double,
     val detailed: Boolean, val features: List<MapFeature>)
-data class MapFeatureMesh(val roads: FloatArray = floatArrayOf(), val water: FloatArray = floatArrayOf())
+data class MapFeatureMesh(val roads: FloatArray = floatArrayOf(), val water: FloatArray = floatArrayOf(),
+    val paths: FloatArray = floatArrayOf(), val buildings: FloatArray = floatArrayOf())
 
 object MapFeatureProjection {
     /** Clip before sampling: missing terrain must not create lines through the zero plane. */
@@ -34,15 +36,17 @@ object MapFeatureProjection {
         if (area == null || terrain == null || !terrain.real) return MapFeatureMesh()
         val base = terrain.heights.filter { it.isFinite() }.minOrNull()?.toDouble() ?: return MapFeatureMesh()
         val roads = ArrayList<Float>(); val water = ArrayList<Float>()
+        val paths = ArrayList<Float>(); val buildings = ArrayList<Float>()
+        fun result() = MapFeatureMesh(roads.toFloatArray(), water.toFloatArray(), paths.toFloatArray(), buildings.toFloatArray())
         val spacing = (terrain.halfSizeM * 2 / (terrain.size - 1) / 2).coerceIn(3.0, 80.0)
         fun add(target: MutableList<Float>, p: WorldPoint) {
             target.add(p.east.toFloat()); target.add(p.north.toFloat()); target.add(p.height.toFloat())
         }
         for (feature in area.features) {
             if (detail == TerrainDetail.OVERVIEW && !feature.major) continue
-            val target = if (feature.water) water else roads
+            val target = when { feature.water -> water; feature.building -> buildings; feature.path -> paths; else -> roads }
             for ((a, b) in feature.points.zipWithNext()) {
-                if (roads.size + water.size >= 600_000) return MapFeatureMesh(roads.toFloatArray(), water.toFloatArray())
+                if (roads.size + water.size + paths.size + buildings.size >= 600_000) return result()
                 val segment = clip(GeoFrame.local(a.latitude, a.longitude, terrain.originLat, terrain.originLon),
                     GeoFrame.local(b.latitude, b.longitude, terrain.originLat, terrain.originLon), terrain.halfSizeM) ?: continue
                 val start = segment.first; val end = segment.second
@@ -59,6 +63,6 @@ object MapFeatureProjection {
                 }
             }
         }
-        return MapFeatureMesh(roads.toFloatArray(), water.toFloatArray())
+        return result()
     }
 }

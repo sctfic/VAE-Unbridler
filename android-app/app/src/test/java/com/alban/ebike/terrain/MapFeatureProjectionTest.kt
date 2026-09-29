@@ -6,6 +6,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MapFeatureProjectionTest {
+    @Test fun pathsAndBuildingsHaveIndependentBuffersAndAreOmittedInOverview() {
+        val terrain = TerrainGrid(48.0, 2.0, 100.0, 5, FloatArray(25) { 50f }, "test", true)
+        val road = MapFeature(false, false, listOf(MapCoordinate(48.0, 2.0), MapCoordinate(48.0001, 2.0001)))
+        val area = MapFeatureArea(48.0, 2.0, 100.0, true,
+            listOf(road.copy(path = true), road.copy(building = true)))
+        val mesh = MapFeatureProjection.build(area, terrain, TerrainDetail.CLOSE)
+        assertTrue(mesh.roads.isEmpty()); assertTrue(mesh.water.isEmpty())
+        assertTrue(mesh.paths.isNotEmpty()); assertTrue(mesh.buildings.isNotEmpty())
+        val overview = MapFeatureProjection.build(area, terrain, TerrainDetail.OVERVIEW)
+        assertTrue(overview.paths.isEmpty()); assertTrue(overview.buildings.isEmpty())
+    }
     @Test fun segmentCrossingTerrainIsClippedAndOutsideSegmentIsRejected() {
         val clipped = MapFeatureProjection.clip(WorldPoint(-200.0, 0.0), WorldPoint(200.0, 0.0), 100.0)!!
         assertEquals(-100.0, clipped.first.east, 1e-6)

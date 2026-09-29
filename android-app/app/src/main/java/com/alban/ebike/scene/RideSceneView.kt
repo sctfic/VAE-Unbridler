@@ -19,6 +19,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     private val sceneRenderer = SceneRenderer()
     var onResetRequested: () -> Unit = {}
     var onViewModeRequested: () -> Unit = {}
+    var onOptionsRequested: () -> Unit = {}
     private val scaleGestures = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val factor = detector.scaleFactor.toDouble()
@@ -28,6 +29,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     }).apply { isQuickScaleEnabled = false }
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean = true
+        override fun onLongPress(e: MotionEvent) { if (e.pointerCount == 1 && !scaleGestures.isInProgress) onOptionsRequested() }
         override fun onScroll(first: MotionEvent?, current: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
             if (current.pointerCount > 1 || scaleGestures.isInProgress) return true
             val delta = -distanceX / width.coerceAtLeast(1) * Math.PI * 2
@@ -149,8 +151,8 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             mesh = next
             framePoints = next.frame.map { WorldPoint(it.east - next.center.east, it.north - next.center.north, it.height - next.center.height) }
             fittedHeading = Double.NaN
-            val arrays = listOf(next.surface, next.grid, next.contours, next.route, next.marker, next.routeColors, next.roads, next.waterways)
-            val previousArrays = previous?.let { listOf(it.surface, it.grid, it.contours, it.route, it.marker, it.routeColors, it.roads, it.waterways) }
+            val arrays = listOf(next.surface, next.grid, next.contours, next.route, next.marker, next.routeColors, next.roads, next.waterways, next.paths, next.buildings)
+            val previousArrays = previous?.let { listOf(it.surface, it.grid, it.contours, it.route, it.marker, it.routeColors, it.roads, it.waterways, it.paths, it.buildings) }
             buffers = arrays.mapIndexed { i, values ->
                 if (previousArrays?.get(i) === values && buffers.size > i) buffers[i]
                 else ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
@@ -213,6 +215,8 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         draw(2, GL_LINES, floatArrayOf(.18f, .71f, .76f, .65f))
         draw(6, GL_LINES, floatArrayOf(.72f, .80f, .84f, .8f), 2f)
         draw(7, GL_LINES, floatArrayOf(.12f, .55f, 1f, .95f), 3f)
+        draw(8, GL_LINES, floatArrayOf(.78f, .66f, .38f, .75f), 1f)
+        draw(9, GL_LINES, floatArrayOf(.62f, .72f, .86f, .65f), 1f)
         val rgb = if (scene.speedMode) floatArrayOf(1f, .23f, .30f) else floatArrayOf(.25f, .79f, 1f)
         // Screen-space widths stay readable as the camera pulls away.
         draw(3, GL_LINES, floatArrayOf(0f, 0f, .02f, .8f), 9f, -1.5f)

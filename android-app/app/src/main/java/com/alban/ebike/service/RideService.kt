@@ -164,7 +164,7 @@ class RideService : Service() {
 
     private fun notification(message: String) = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.ic_menu_compass)
-        .setContentTitle("E-Bike")
+        .setContentTitle("E-BikeCockpit")
         .setContentText(message)
         .setContentIntent(
             PendingIntent.getActivity(
@@ -182,7 +182,7 @@ class RideService : Service() {
         .build()
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "E-Bike enregistrement", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, "E-BikeCockpit enregistrement", NotificationManager.IMPORTANCE_LOW)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 

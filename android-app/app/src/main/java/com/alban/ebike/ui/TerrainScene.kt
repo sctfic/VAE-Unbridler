@@ -4,6 +4,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Alignment
@@ -31,6 +36,10 @@ import kotlin.math.*
 internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteMetric,
     window: SceneWindow, onWindowChange: (SceneWindow) -> Unit, onReset: () -> Unit, onStatus: (String) -> Unit) {
     val context = LocalContext.current
+    val preferences = remember { context.getSharedPreferences("scene-layers", android.content.Context.MODE_PRIVATE) }
+    var optionsOpen by rememberSaveable { mutableStateOf(false) }
+    var layers by remember { mutableStateOf(listOf("contours", "water", "roads", "paths", "buildings")
+        .associateWith { preferences.getBoolean(it, true) }) }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val view = remember { RideSceneView(context) }
@@ -45,6 +54,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     val selectedTrack = remember(state.track, window) { TrackWindow.select(state.track, window) }
     SideEffect {
         view.onResetRequested = { reset() }
+        view.onOptionsRequested = { optionsOpen = true }
         view.onViewModeRequested = { onWindowChange(window.next()) }
         view.updateMovement(state.distanceM, state.inclinePercent.takeIf { state.inclineValid } ?: 0f)
     }
@@ -107,11 +117,14 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         if (!active) return@LaunchedEffect
         mapMesh = withContext(Dispatchers.Default) { MapFeatureProjection.build(mapArea, terrain, detail) }
     }
-    LaunchedEffect(active, selectedTrack, terrain, state.speedMode, metric, detail, mapMesh) {
+    LaunchedEffect(active, selectedTrack, terrain, state.speedMode, metric, detail, mapMesh, layers) {
         if (!active) return@LaunchedEffect
         heading = GeoFrame.heading(selectedTrack, heading)
         val next = withContext(Dispatchers.Default) { RideSceneMesh.build(selectedTrack, terrain, state.speedMode, heading, metric, detail) }
-        view.submit(next.copy(roads = mapMesh.roads, waterways = mapMesh.water))
+        fun visible(key: String, data: FloatArray) = if (layers[key] == true) data else floatArrayOf()
+        view.submit(next.copy(contours = visible("contours", next.contours),
+            roads = visible("roads", mapMesh.roads), waterways = visible("water", mapMesh.water),
+            paths = visible("paths", mapMesh.paths), buildings = visible("buildings", mapMesh.buildings)))
     }
     Box(modifier) {
         AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
@@ -121,6 +134,24 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             .padding(top = 2.dp).offset(x = 4.dp)
             .size(116.dp, if (landscape) 96.dp else 110.dp))
     }
+    if (optionsOpen) AlertDialog(onDismissRequest = { optionsOpen = false },
+        title = { Text("Affichage 3D") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                listOf("contours" to "Lignes de niveau", "water" to "Cours d’eau", "roads" to "Routes",
+                    "paths" to "Chemins · VTT et à pied", "buildings" to "Bâtiments").forEach { (key, label) ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+                        value = layers[key] == true, role = Role.Checkbox, onValueChange = { checked ->
+                            layers = layers + (key to checked)
+                            preferences.edit().putBoolean(key, checked).apply()
+                        }), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = layers[key] == true, onCheckedChange = null)
+                        Text(label, Modifier.padding(start = 8.dp))
+                    }
+                }
+                Text("Chemins et contours de bâtiments selon les données disponibles et le niveau de zoom.")
+            }
+        }, confirmButton = { TextButton(onClick = { optionsOpen = false }) { Text("Fermer") } })
 }
 
 @Composable

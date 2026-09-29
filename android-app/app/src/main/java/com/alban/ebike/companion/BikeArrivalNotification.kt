@@ -22,7 +22,7 @@ object BikeArrivalNotification {
         manager.createNotificationChannel(NotificationChannel(
             CHANNEL_ID, "ESP32 à proximité", NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "Invitation à ouvrir E-Bike lorsque la carte est détectée et le téléphone verrouillé"
+            description = "Invitation à ouvrir E-BikeCockpit lorsque la carte est détectée et le téléphone verrouillé"
             lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
         })
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
@@ -38,9 +38,9 @@ object BikeArrivalNotification {
         manager.notify(NOTIFICATION_ID, NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentTitle("Votre vélo est prêt")
-            .setContentText("ESP32 détecté · Touchez pour ouvrir E-Bike")
+            .setContentText("ESP32 détecté · Touchez pour ouvrir E-BikeCockpit")
             .setContentIntent(open)
-            .addAction(android.R.drawable.ic_menu_view, "Ouvrir E-Bike", open)
+            .addAction(android.R.drawable.ic_menu_view, "Ouvrir E-BikeCockpit", open)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
