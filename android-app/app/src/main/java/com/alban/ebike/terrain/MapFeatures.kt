@@ -43,10 +43,9 @@ object MapFeatureProjection {
             target.add(p.east.toFloat()); target.add(p.north.toFloat()); target.add(p.height.toFloat())
         }
         for (feature in area.features) {
-            if (detail == TerrainDetail.OVERVIEW && !feature.major) continue
             val target = when { feature.water -> water; feature.building -> buildings; feature.path -> paths; else -> roads }
             for ((a, b) in feature.points.zipWithNext()) {
-                if (roads.size + water.size + paths.size + buildings.size >= 600_000) return result()
+                if (target.size >= 150_000) break // Independent budgets: buildings cannot hide all paths/water.
                 val segment = clip(GeoFrame.local(a.latitude, a.longitude, terrain.originLat, terrain.originLon),
                     GeoFrame.local(b.latitude, b.longitude, terrain.originLat, terrain.originLon), terrain.halfSizeM) ?: continue
                 val start = segment.first; val end = segment.second

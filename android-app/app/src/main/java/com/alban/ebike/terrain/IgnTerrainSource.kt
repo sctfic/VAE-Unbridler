@@ -21,37 +21,46 @@ class IgnTerrainSource(context: Context) {
         val heights: FloatArray, val cached: Boolean) {
         val size: Int get() = kotlin.math.sqrt(heights.size.toDouble()).toInt()
     }
-    private val cache = File(context.cacheDir, "terrain-ign-rge1m-v1")
+    private val cache = File(context.filesDir, "terrain-ign-rge1m-v1")
+    private val legacyCache = File(context.cacheDir, "terrain-ign-rge1m-v1")
     private var retryAt = 0L
     private val emptyUntil = LinkedHashMap<String, Long>()
 
-    suspend fun load(lat: Double, lon: Double, halfSize: Double, size: Int = IgnElevationPolicy.SIZE): Result? {
+    suspend fun load(lat: Double, lon: Double, halfSize: Double, size: Int = IgnElevationPolicy.SIZE,
+        progress: (String) -> Unit = {}, preview: (Result) -> Unit = {}): Result? {
+        progress("IGN · recherche cache local")
         val previous = findCoveringCache(lat, lon, halfSize)
+        previous?.takeUnless { IgnElevationPolicy.adequateResolution(it.halfSizeM, it.size, halfSize, size) }?.let(preview)
         previous?.takeIf { IgnElevationPolicy.adequateResolution(it.halfSizeM, it.size, halfSize, size) }?.let {
             Log.i("EBikeTerrain", "IGN cache reused without network")
+            progress("IGN · cache disque, aucun réseau")
             return it
         }
         val coordinates = IgnElevationPolicy.coordinates(lat, lon, halfSize, size)
         val indices = coordinates.indices.filter { coordinates[it].let { p -> IgnElevationPolicy.mayCover(p.first, p.second) } }
-        if (indices.isEmpty()) return null
+        if (indices.isEmpty()) { progress("IGN · hors couverture"); return null }
         val key = MessageDigest.getInstance("SHA-256").digest("$size/$lat/$lon/$halfSize".toByteArray())
             .joinToString("") { "%02x".format(it) }
         val file = File(cache, "$key.bin")
         val stored = runCatching {
-            check(file.length() == coordinates.size * 4L)
-            DataInputStream(file.inputStream().buffered()).use { input ->
+            val existing = if (file.exists()) file else File(legacyCache, "$key.bin")
+            check(existing.length() == coordinates.size * 4L)
+            DataInputStream(existing.inputStream().buffered()).use { input ->
                 FloatArray(coordinates.size) { IgnElevationPolicy.elevation(input.readFloat().toDouble()) }
             }.takeIf { heights -> heights.any { it.isFinite() } }
         }.getOrNull()
         if (stored != null) {
+            progress("IGN · cache exact, aucun réseau")
             writeMetadata(key, lat, lon, halfSize, size)
             return Result(lat, lon, halfSize, stored, true)
         }
         val now = SystemClock.elapsedRealtime()
-        if (now < retryAt || now < (emptyUntil[key] ?: 0L)) return previous
+        if (now < retryAt || now < (emptyUntil[key] ?: 0L)) { progress("IGN · temporisation après échec, cache conservé"); return previous }
         try {
             val heights = FloatArray(coordinates.size) { Float.NaN }
-            for (batch in indices.chunked(IgnElevationPolicy.BATCH_SIZE)) {
+            val batches = indices.chunked(IgnElevationPolicy.BATCH_SIZE)
+            for ((batchIndex, batch) in batches.withIndex()) {
+            progress("IGN · attente quota, lot ${batchIndex + 1}/${batches.size}")
             val body = JSONObject().put("resource", IgnElevationPolicy.RESOURCE)
                 .put("lon", batch.joinToString("|") { coordinates[it].second.toString() })
                 .put("lat", batch.joinToString("|") { coordinates[it].first.toString() })
@@ -61,6 +70,7 @@ class IgnTerrainSource(context: Context) {
                 delay((nextRequestAt - SystemClock.elapsedRealtime()).coerceAtLeast(0))
                 coroutineContext.ensureActive()
                 nextRequestAt = SystemClock.elapsedRealtime() + 1000
+                progress("IGN · téléchargement ${batchIndex + 1}/${batches.size}")
                 request(body)
             }
             coroutineContext.ensureActive()
@@ -69,6 +79,7 @@ class IgnTerrainSource(context: Context) {
             batch.forEachIndexed { n, index -> heights[index] = IgnElevationPolicy.elevation(elevations.optDouble(n, Double.NaN)) }
             }
             val valid = heights.count { it.isFinite() }
+            progress("IGN · décodé $valid/${heights.size}, sauvegarde")
             Log.i("EBikeTerrain", "IGN RGE ALTI 1m: $valid/${heights.size} samples")
             if (valid == 0) {
                 if (emptyUntil.size >= 32) emptyUntil.clear()
@@ -88,13 +99,15 @@ class IgnTerrainSource(context: Context) {
         catch (error: Exception) {
             retryAt = SystemClock.elapsedRealtime() + 120_000
             Log.w("EBikeTerrain", "IGN unavailable; cached/fallback terrain", error)
+            progress("IGN · échec réseau, cache / repli")
             return previous
         }
     }
 
-    private fun findCoveringCache(lat: Double, lon: Double, halfSize: Double): Result? {
-        val metadata = cache.listFiles { file -> file.extension == "json" }
-            ?.sortedByDescending { it.lastModified() } ?: return null
+    fun findCoveringCache(lat: Double, lon: Double, halfSize: Double): Result? {
+        val metadata = listOf(cache, legacyCache).flatMap { dir ->
+            dir.listFiles { file -> file.extension == "json" }.orEmpty().toList()
+        }.sortedByDescending { it.lastModified() }
         var best: Result? = null
         for (meta in metadata) {
             val result = runCatching {
@@ -102,8 +115,8 @@ class IgnTerrainSource(context: Context) {
                 val cachedLat = json.getDouble("lat")
                 val cachedLon = json.getDouble("lon")
                 val cachedHalf = json.getDouble("halfSizeM")
-                if (!IgnElevationPolicy.contains(cachedLat, cachedLon, cachedHalf, lat, lon, halfSize)) return@runCatching null
-                val file = File(cache, meta.nameWithoutExtension + ".bin")
+                if (!IgnElevationPolicy.contains(cachedLat, cachedLon, cachedHalf, lat, lon, halfSize, 1.0)) return@runCatching null
+                val file = File(meta.parentFile, meta.nameWithoutExtension + ".bin")
                 val size = json.optInt("size", 65)
                 check(size in listOf(65, 97, 129))
                 check(file.length() == size * size * 4L)
@@ -149,6 +162,39 @@ class IgnTerrainSource(context: Context) {
                 out.toString("UTF-8")
             }
         } finally { connection.disconnect() }
+    }
+    /** One independently persisted tile, with the same global quota as legacy requests. */
+    suspend fun fetchTile(key: ElevationTileKey, progress: (String) -> Unit): FloatArray? {
+        if (SystemClock.elapsedRealtime() < retryAt) return null
+        val points = key.coordinates()
+        val indices = points.indices.filter { IgnElevationPolicy.mayCover(points[it].first, points[it].second) }
+        if (indices.isEmpty()) return FloatArray(1089) { Float.NaN }
+        return try {
+            val body = JSONObject().put("resource", IgnElevationPolicy.RESOURCE)
+                .put("lon", indices.joinToString("|") { points[it].second.toString() })
+                .put("lat", indices.joinToString("|") { points[it].first.toString() })
+                .put("delimiter", "|").put("zonly", "true").put("measures", "false").toString()
+            val response = networkMutex.withLock {
+                progress("IGN · attente quota, tuile L${key.level}")
+                delay((nextRequestAt - SystemClock.elapsedRealtime()).coerceAtLeast(0))
+                coroutineContext.ensureActive()
+                nextRequestAt = SystemClock.elapsedRealtime() + 1000
+                progress("IGN · téléchargement tuile L${key.level}, ${indices.size} points")
+                Log.i("EBikeTerrain", "Tile HTTP L${key.level}: ${indices.size} samples")
+                request(body)
+            }
+            val values = JSONObject(response).getJSONArray("elevations")
+            check(values.length() == indices.size)
+            FloatArray(1089) { Float.NaN }.also { result ->
+                indices.forEachIndexed { i, index -> result[index] = IgnElevationPolicy.elevation(values.optDouble(i, Double.NaN)) }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            retryAt = SystemClock.elapsedRealtime() + 120_000
+            progress("IGN · réseau indisponible, cache conservé")
+            Log.w("EBikeTerrain", "Tile fetch failed", error)
+            null
+        }
     }
     private fun prune() {
         val files = cache.listFiles { f -> f.extension == "bin" }?.sortedBy { it.lastModified() } ?: return

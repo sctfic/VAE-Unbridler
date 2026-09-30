@@ -20,6 +20,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     var onResetRequested: () -> Unit = {}
     var onViewModeRequested: () -> Unit = {}
     var onOptionsRequested: () -> Unit = {}
+    var onFrameReady: (Long) -> Unit = {}
     private val scaleGestures = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val factor = detector.scaleFactor.toDouble()
@@ -61,6 +62,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
         queueEvent { sceneRenderer.orbit.movement(distanceM, now); sceneRenderer.grade = grade }
     }
     fun cameraPose() = sceneRenderer.cameraPose()
+    fun parcelLabels() = sceneRenderer.visibleLabels
     private var running = false
     private val frame = object : Runnable {
         override fun run() {
@@ -70,6 +72,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
         }
     }
     init {
+        sceneRenderer.onFrameReady = { milliseconds -> post { onFrameReady(milliseconds) } }
         setEGLContextClientVersion(2)
         setEGLConfigChooser(8, 8, 8, 0, 24, 0)
         preserveEGLContextOnPause = true
@@ -91,6 +94,8 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
 data class CameraPose(val heading: Double = 0.0, val tilt: Double = TrackCamera.TILT)
 
 private class SceneRenderer : GLSurfaceView.Renderer {
+    @Volatile var visibleLabels: List<com.alban.ebike.terrain.ScreenLabel> = emptyList()
+    var onFrameReady: (Long) -> Unit = {}
     val orbit = SceneOrbit()
     var grade = 0f
     @Volatile var pending: SceneMesh? = null
@@ -144,15 +149,17 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         glViewport(0, 0, width, height); aspect = width.toDouble() / height.coerceAtLeast(1)
     }
     override fun onDrawFrame(gl: GL10?) {
+        val started = SystemClock.uptimeMillis()
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         val next = pending
+        val changed = next != null && next !== mesh
         if (next != null && next !== mesh) {
             val previous = mesh
             mesh = next
             framePoints = next.frame.map { WorldPoint(it.east - next.center.east, it.north - next.center.north, it.height - next.center.height) }
             fittedHeading = Double.NaN
-            val arrays = listOf(next.surface, next.grid, next.contours, next.route, next.marker, next.routeColors, next.roads, next.waterways, next.paths, next.buildings)
-            val previousArrays = previous?.let { listOf(it.surface, it.grid, it.contours, it.route, it.marker, it.routeColors, it.roads, it.waterways, it.paths, it.buildings) }
+            val arrays = listOf(next.surface, next.grid, next.contours, next.route, next.marker, next.routeColors, next.roads, next.waterways, next.paths, next.buildings, next.parcels)
+            val previousArrays = previous?.let { listOf(it.surface, it.grid, it.contours, it.route, it.marker, it.routeColors, it.roads, it.waterways, it.paths, it.buildings, it.parcels) }
             buffers = arrays.mapIndexed { i, values ->
                 if (previousArrays?.get(i) === values && buffers.size > i) buffers[i]
                 else ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
@@ -181,6 +188,19 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         }
         // Expand immediately to keep every point inside; ease in when the route becomes smaller.
         distance = if (fit > distance) fit else distance + (fit - distance) * .055
+        visibleLabels = scene.parcelLabels.mapNotNull { label ->
+            val p = label.point
+            val x = p.east - scene.center.east; val y = p.north - scene.center.north; val z = p.height - scene.center.height
+            val right = x * cos(heading) - y * sin(heading)
+            val forward = x * sin(heading) + y * cos(heading)
+            val vertical = forward * sin(orbit.tilt) + z * cos(orbit.tilt)
+            val depth = distance / orbit.zoom + forward * cos(orbit.tilt) - z * sin(orbit.tilt)
+            if (depth <= max(.5, distance / orbit.zoom * .001)) return@mapNotNull null
+            val sx = .5 + right * 1.9 / aspect / depth / 2
+            val sy = .5 - vertical * 1.9 / depth / 2
+            if (sx !in .02.. .98 || sy !in .12.. .87) null else
+                com.alban.ebike.terrain.ScreenLabel(label.text, sx.toFloat(), sy.toFloat())
+        }.sortedBy { hypot(it.x - .5f, it.y - .5f) }.take(160)
         glUseProgram(program)
         glUniform3f(uniforms.getValue("u_center"), scene.center.east.toFloat(), scene.center.north.toFloat(), scene.center.height.toFloat())
         glUniform4f(uniforms.getValue("u_camera"), sin(heading).toFloat(), cos(heading).toFloat(), (distance / orbit.zoom).toFloat(), aspect.toFloat())
@@ -217,6 +237,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         draw(7, GL_LINES, floatArrayOf(.12f, .55f, 1f, .95f), 3f)
         draw(8, GL_LINES, floatArrayOf(.78f, .66f, .38f, .75f), 1f)
         draw(9, GL_LINES, floatArrayOf(.62f, .72f, .86f, .65f), 1f)
+        draw(10, GL_LINES, floatArrayOf(.95f, .65f, .34f, .8f), 1f)
         val rgb = if (scene.speedMode) floatArrayOf(1f, .23f, .30f) else floatArrayOf(.25f, .79f, 1f)
         // Screen-space widths stay readable as the camera pulls away.
         draw(3, GL_LINES, floatArrayOf(0f, 0f, .02f, .8f), 9f, -1.5f)
@@ -230,6 +251,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         draw(4, GL_POINTS, floatArrayOf(.9f, 1f, 1f, 1f), pointSize = 7f)
         glEnable(GL_DEPTH_TEST); glDepthMask(true)
         glDisableVertexAttribArray(positionHandle)
+        if (changed) onFrameReady(SystemClock.uptimeMillis() - started)
     }
 
     companion object {

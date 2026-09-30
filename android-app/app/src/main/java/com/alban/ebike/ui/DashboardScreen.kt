@@ -62,6 +62,12 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     var sceneWindow by rememberSaveable { mutableStateOf(SceneWindow.ALL) }
     val profileWindow = when (profileMode) { 1 -> state.distanceM.coerceAtLeast(1.0); 2 -> 2000.0; else -> 500.0 }
     val context = LocalContext.current
+    val diagnosticPreferences = remember { context.getSharedPreferences("scene-layers", android.content.Context.MODE_PRIVATE) }
+    var debugVisible by remember { mutableStateOf(diagnosticPreferences.getBoolean("debug", false)) }
+    val setDebugVisible: (Boolean) -> Unit = { enabled ->
+        debugVisible = enabled
+        diagnosticPreferences.edit().putBoolean("debug", enabled).apply()
+    }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var terrainStatus by remember { mutableStateOf("EN ATTENTE DE POSITION · GRILLE") }
     val toggle by rememberUpdatedState(onToggleMode)
@@ -72,7 +78,8 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
          if (landscape) {
           Box(Modifier.fillMaxSize()) {
            TerrainScene(state, Modifier.align(Alignment.TopEnd).fillMaxWidth(.6f).fillMaxHeight(), metric,
-               sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true }) { terrainStatus = it }
+               sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
+               debugVisible = debugVisible, onDebugChange = setDebugVisible) { terrainStatus = it }
           Row(Modifier.fillMaxWidth().fillMaxHeight(.8f)) {
            Column(Modifier.weight(.4f).fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().height(32.dp).padding(horizontal = 6.dp),
@@ -88,7 +95,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Column(Modifier.fillMaxWidth().weight(1f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
                 SpeedGauge(state, accent, Modifier.fillMaxWidth().weight(1f))
-                Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                     color = Muted, fontSize = 8.sp, lineHeight = 9.sp, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
@@ -143,13 +150,14 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Column(Modifier.fillMaxWidth().weight(.38f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
                 SpeedGauge(state, accent, Modifier.fillMaxWidth().weight(1f))
-                Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                     color = Muted, fontSize = 9.sp, lineHeight = 11.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
             Separator(accent)
             Box(Modifier.fillMaxWidth().weight(.62f).clipToBounds()) {
-                TerrainScene(state, Modifier.fillMaxSize(), metric, sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true }) { terrainStatus = it }
+                TerrainScene(state, Modifier.fillMaxSize(), metric, sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
+                    debugVisible = debugVisible, onDebugChange = setDebugVisible) { terrainStatus = it }
                 Column(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(end = 116.dp)
                     .padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -266,8 +274,10 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text("km/h", color = Muted, fontSize = 13.sp, letterSpacing = 2.sp,
                 modifier = Modifier.offset(y = (-8).dp))
         }
-        SmallSpeed("MOTEUR", state.motorSpeedKmh, accent, Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 14.dp))
-        SmallSpeed("ROUE", state.wheelSpeedKmh, Cyan, Modifier.align(Alignment.TopStart).padding(top = 1.dp, start = 14.dp), Alignment.Start)
+        if (state.bluetoothReady) {
+            SmallSpeed("MOTEUR", state.motorSpeedKmh, accent, Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 14.dp))
+            SmallSpeed("ROUE", state.wheelSpeedKmh, Cyan, Modifier.align(Alignment.TopStart).padding(top = 1.dp, start = 14.dp), Alignment.Start)
+        }
     }
 }
 
@@ -349,7 +359,8 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Relief & données") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text("Priorité : © IGN, RGE ALTI® 1 m — ressource ign_rge_alti_par_territoires de la Géoplateforme. Licence Ouverte Etalab. Acquisition variable selon la zone (LiDAR, photogrammétrie, etc.).\n\n" +
-                "Routes (gris clair) et cours d’eau (bleu) : © contributeurs OpenStreetMap, licence ODbL, via Overpass. Projection sur le sol IGN ; les tunnels sont omis et les ponts ne représentent pas leur hauteur réelle. Les grandes vues montrent les axes principaux, dans une zone centrale limitée à environ 24 km de côté avant marge. Cache local de 64 Mio ; le serveur reçoit l’emprise consultée. Hors connexion, seules les zones déjà en cache sont disponibles.\n\n" +
+                "Routes (gris clair) et cours d’eau (bleu) : © contributeurs OpenStreetMap, licence ODbL, via Overpass. Projection sur le sol IGN ; les tunnels sont omis et les ponts ne représentent pas leur hauteur réelle. Toutes les couches cochées restent actives en grande vue, dans une zone centrale limitée à environ 24 km de côté avant marge et avec un budget de géométrie par couche. Cache local de 64 Mio ; le serveur reçoit l’emprise consultée. Hors connexion, seules les zones déjà en cache sont disponibles.\n\n" +
+                "Cadastre optionnel : Parcellaire Express (PCI), IGN / DGFiP, Licence Ouverte Etalab. Références section / numéro, sans nom de propriétaire. Couverture locale autour du GPS ; cache de 64 Mio et limite de 2 000 parcelles par zone. L’activation transmet cette zone à IGN. Ce rendu n’a pas de valeur juridique.\n\n" +
                 "Détail adapté à la vue : 500 m, courbes tous les 5 m ; 2 km, tous les 10 m ; parcours complet, tous les 20 m. Le pas horizontal réellement utilisé dépend de la zone et apparaît dans le statut. Le cache plus détaillé est réutilisé. La source RGE ALTI à 1 m ne signifie pas que chaque sommet affiché est espacé de 1 m. Le relief est exagéré ×1,8 uniquement à l’écran.\n\n" +
                 "Repli : Terrain Tiles / Mapzen (AWS) pour les points non couverts ou si l’IGN est indisponible. Sans données, grille neutre. Trace projetée sur le sol, sans représentation spécifique des ponts et tunnels.\n\n" +
                 "Cache local : 64 Mio IGN + 64 Mio Mapzen. Les requêtes IGN transmettent les coordonnées d’une grille couvrant la zone visible ; AWS reçoit les numéros des tuiles. Ces fournisseurs connaissent donc la zone consultée, mais aucun journal ni historique GPS ne leur est envoyé.\n\n" +

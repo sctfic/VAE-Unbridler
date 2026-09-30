@@ -12,23 +12,28 @@ import java.net.URL
 import kotlin.coroutines.coroutineContext
 import kotlin.math.*
 
-/** Public Terrarium DEM, bounded disk cache; no API key or location telemetry. */
+/** Public DEM, bounded local cache. Network requests disclose the requested geographic area. */
 class TerrainRepository(context: Context) {
     private val ign = IgnTerrainSource(context)
-    private val cache = File(context.cacheDir, "terrain-v1")
+    private val cache = File(context.filesDir, "terrain-v1")
+    private val legacyCache = File(context.cacheDir, "terrain-v1")
     private val memory = object : LinkedHashMap<TileKey, FloatArray>(24, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TileKey, FloatArray>?) = size > 24
     }
     private val failedAt = mutableMapOf<TileKey, Long>()
 
     suspend fun load(lat: Double, lon: Double, halfSizeM: Double,
-        detail: TerrainDetail = TerrainDetail.CLOSE): TerrainGrid = withContext(Dispatchers.IO) {
-        val preferred = ign.load(lat, lon, halfSizeM, detail.sourceSize)
+        detail: TerrainDetail = TerrainDetail.CLOSE, progress: (String) -> Unit = {},
+        preview: (TerrainGrid) -> Unit = {}): TerrainGrid = withContext(Dispatchers.IO) {
+        val preferred = ign.load(lat, lon, halfSizeM, detail.sourceSize, progress) { cached ->
+            preview(TerrainGrid(cached.originLat, cached.originLon, cached.halfSizeM, cached.size,
+                cached.heights, "IGN · APERÇU CACHE", true))
+        }
         val step = ((preferred?.halfSizeM ?: halfSizeM) * 2 / ((preferred?.size ?: IgnElevationPolicy.SIZE) - 1)).roundToInt()
         if (preferred != null && preferred.heights.all { it.isFinite() }) return@withContext TerrainGrid(
             preferred.originLat, preferred.originLon, preferred.halfSizeM, preferred.size, preferred.heights,
             "IGN RGE ALTI 1 M · MAILLE ${step} M" + if (preferred.cached) " · CACHE" else "", true)
-        val fallback = loadMapzen(lat, lon, halfSizeM)
+        val fallback = loadMapzen(lat, lon, halfSizeM, progress)
         if (preferred == null) fallback.copy(status = "MAPZEN · " + fallback.status)
         else {
             val heights = preferred.heights.copyOf()
@@ -45,7 +50,9 @@ class TerrainRepository(context: Context) {
         }
     }
 
-    private suspend fun loadMapzen(lat: Double, lon: Double, halfSizeM: Double): TerrainGrid = withContext(Dispatchers.IO) {
+    suspend fun loadMapzen(lat: Double, lon: Double, halfSizeM: Double,
+        progress: (String) -> Unit): TerrainGrid = withContext(Dispatchers.IO) {
+        progress("MapZen · recherche tuiles cache")
         val size = 65
         if (abs(lat) > 84.0) return@withContext TerrainGrid(lat, lon, halfSizeM, size,
             FloatArray(size * size) { Float.NaN }, "ZONE POLAIRE · GRILLE", false)
@@ -64,8 +71,9 @@ class TerrainRepository(context: Context) {
         val loaded = mutableMapOf<TileKey, FloatArray>()
         var downloads = 0
         var networkAllowed = true
-        keys.forEach { key ->
+        keys.forEachIndexed { index, key ->
             coroutineContext.ensureActive()
+            progress("MapZen · tuile ${index + 1}/${keys.size}, cache puis réseau")
             val tile = runCatching { readTile(key, networkAllowed) }.getOrNull()
             if (tile != null) { loaded[key] = tile.first; if (tile.second) downloads++ }
             else networkAllowed = false // Offline: still read cached neighbours, avoid repeated network timeouts.
@@ -81,6 +89,7 @@ class TerrainRepository(context: Context) {
                 (tile[(y + 1) * 256 + x] * (1 - dx) + tile[(y + 1) * 256 + x + 1] * dx) * dy
         }
         val complete = loaded.size == keys.size
+        progress("MapZen · ${loaded.size}/${keys.size} tuiles, $downloads téléchargées")
         pruneCache()
         TerrainGrid(lat, lon, halfSizeM, size, heights, when {
             loaded.isEmpty() -> "RELIEF INDISPONIBLE · GRILLE"
@@ -94,9 +103,10 @@ class TerrainRepository(context: Context) {
         memory[key]?.let { return it to false }
         check(cache.isDirectory || cache.mkdirs())
         val file = File(cache, key.fileName)
-        if (file.exists()) {
-            decode(file.readBytes())?.let { memory[key] = it; file.setLastModified(System.currentTimeMillis()); return it to false }
-            file.delete()
+        val existing = if (file.exists()) file else File(legacyCache, key.fileName)
+        if (existing.exists()) {
+            decode(existing.readBytes())?.let { memory[key] = it; existing.setLastModified(System.currentTimeMillis()); return it to false }
+            existing.delete()
         }
         val now = System.currentTimeMillis()
         if (!networkAllowed) return null

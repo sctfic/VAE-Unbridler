@@ -3,6 +3,7 @@ package com.alban.ebike.scene
 import com.alban.ebike.model.TrackPoint
 import com.alban.ebike.terrain.TerrainGrid
 import com.alban.ebike.terrain.TerrainDetail
+import com.alban.ebike.terrain.GeometryCache
 import kotlin.math.*
 
 data class SceneMesh(val surface: FloatArray, val grid: FloatArray, val contours: FloatArray,
@@ -10,7 +11,8 @@ data class SceneMesh(val surface: FloatArray, val grid: FloatArray, val contours
     val center: WorldPoint, val heading: Double, val speedMode: Boolean,
     val routeColors: FloatArray = floatArrayOf(),
     val roads: FloatArray = floatArrayOf(), val waterways: FloatArray = floatArrayOf(),
-    val paths: FloatArray = floatArrayOf(), val buildings: FloatArray = floatArrayOf())
+    val paths: FloatArray = floatArrayOf(), val buildings: FloatArray = floatArrayOf(),
+    val parcels: FloatArray = floatArrayOf(), val parcelLabels: List<com.alban.ebike.terrain.WorldLabel> = emptyList())
 
 object RideSceneMesh {
     const val VERTICAL_EXAGGERATION = 1.8
@@ -19,8 +21,20 @@ object RideSceneMesh {
     private var cachedDetail: TerrainDetail? = null
     private var cachedLayers: TerrainLayers? = null
 
-    @Synchronized private fun layers(terrain: TerrainGrid?, detail: TerrainDetail): TerrainLayers {
-        if (cachedTerrain === terrain && cachedDetail == detail) cachedLayers?.let { return it }
+    @Synchronized private fun layers(terrain: TerrainGrid?, detail: TerrainDetail,
+        cache: GeometryCache?, progress: (String) -> Unit): TerrainLayers {
+        if (cachedTerrain === terrain && cachedDetail == detail) cachedLayers?.let { progress("Maillage · RAM"); return it }
+        val key = if (terrain?.real == true && cache != null) GeometryCache.key(terrain, detail) else null
+        if (key != null) {
+            progress("Maillage · recherche cache")
+            cache?.read(key)?.takeIf { it.first.size == 3 }?.let { (arrays, source) ->
+                progress("Maillage · cache $source")
+                return TerrainLayers(arrays[0], arrays[1], arrays[2]).also {
+                    cachedTerrain = terrain; cachedDetail = detail; cachedLayers = it
+                }
+            }
+        }
+        progress("Maillage · interpolation / triangles / courbes")
         val base = terrain?.heights?.filter { it.isFinite() }?.minOrNull()?.toDouble() ?: 0.0
         val surface = ArrayList<Float>(); val grid = ArrayList<Float>(); val contours = ArrayList<Float>()
         fun add(list: MutableList<Float>, p: WorldPoint) { list.add(p.east.toFloat()); list.add(p.north.toFloat()); list.add(p.height.toFloat()) }
@@ -75,16 +89,21 @@ object RideSceneMesh {
             }
         }
         return TerrainLayers(surface.toFloatArray(), grid.toFloatArray(), contours.toFloatArray()).also {
+            if (key != null) {
+                progress("Maillage · sauvegarde cache")
+                cache?.write(key, listOf(it.surface, it.grid, it.contours))
+            }
             cachedTerrain = terrain; cachedDetail = detail; cachedLayers = it
         }
     }
 
     fun build(track: List<TrackPoint>, terrain: TerrainGrid?, speedMode: Boolean, heading: Double,
-        metric: RouteMetric = RouteMetric.SPEED, detail: TerrainDetail = TerrainDetail.CLOSE): SceneMesh {
+        metric: RouteMetric = RouteMetric.SPEED, detail: TerrainDetail = TerrainDetail.CLOSE,
+        cache: GeometryCache? = null, progress: (String) -> Unit = {}): SceneMesh {
         val originLat = terrain?.originLat ?: track.lastOrNull()?.latitude ?: 0.0
         val originLon = terrain?.originLon ?: track.lastOrNull()?.longitude ?: 0.0
         val base = terrain?.heights?.filter { it.isFinite() }?.minOrNull()?.toDouble() ?: 0.0
-        val ground = layers(terrain, detail)
+        val ground = layers(terrain, detail, cache, progress)
         fun add(list: MutableList<Float>, p: WorldPoint) { list.add(p.east.toFloat()); list.add(p.north.toFloat()); list.add(p.height.toFloat()) }
         fun line(list: MutableList<Float>, a: WorldPoint, b: WorldPoint) { add(list, a); add(list, b) }
         // Drape the route onto the DEM, avoiding mixing GPS ellipsoid and DEM datums.

@@ -21,13 +21,14 @@ class MapFeatureRepository(context: Context) {
     private var memory: MapFeatureArea? = null
     private var retryAt = 0L
 
-    suspend fun load(terrain: TerrainGrid): MapFeatureArea? = withContext(Dispatchers.IO) {
+    suspend fun load(terrain: TerrainGrid, progress: (String) -> Unit = {}): MapFeatureArea? = withContext(Dispatchers.IO) {
+        progress("OSM · recherche cache")
         val lat = terrain.originLat; val lon = terrain.originLon
         val half = terrain.halfSizeM.coerceAtMost(12_000.0)
-        val detailed = half <= 3500
+        val detailed = true // Layer visibility is independent of the 3D window.
         fun covers(area: MapFeatureArea) = (!detailed || area.detailed) &&
             IgnElevationPolicy.contains(area.latitude, area.longitude, area.halfSizeM, lat, lon, half, 1.0)
-        memory?.takeIf(::covers)?.let { return@withContext it }
+        memory?.takeIf(::covers)?.let { progress("OSM · cache RAM"); return@withContext it }
         for (file in cache.listFiles { f -> f.extension == "json" }?.sortedByDescending { it.lastModified() }.orEmpty()) {
             val area = runCatching {
                 if (file.length() > MAX_BYTES) return@runCatching null
@@ -36,9 +37,9 @@ class MapFeatureRepository(context: Context) {
                     json.getDouble("half"), json.getBoolean("detailed"), emptyList())
                 if (!covers(header)) null else header.copy(features = parse(json.getJSONObject("data")))
             }.getOrNull()
-            if (area != null) { memory = area; Log.i("EBikeMap", "OSM cache reused"); return@withContext area }
+            if (area != null) { memory = area; file.setLastModified(System.currentTimeMillis()); progress("OSM · cache disque décodé"); Log.i("EBikeMap", "OSM cache reused"); return@withContext area }
         }
-        if (SystemClock.elapsedRealtime() < retryAt || abs(lat) > 84) return@withContext null
+        if (SystemClock.elapsedRealtime() < retryAt || abs(lat) > 84) { progress("OSM · temporisation / zone indisponible"); return@withContext null }
         val fetchHalf = half * 1.2
         val sw = GeoFrame.coordinate(-fetchHalf, -fetchHalf, lat, lon)
         val ne = GeoFrame.coordinate(fetchHalf, fetchHalf, lat, lon)
@@ -51,13 +52,16 @@ class MapFeatureRepository(context: Context) {
         val query = "[out:json][timeout:25];(way[highway~\"^($roads)$\"]($bbox);way[waterway~\"^($waterways)$\"]($bbox);$buildings);out tags geom($bbox);"
         try {
             val json = network.withLock {
+                progress("OSM · attente quota Overpass")
                 delay((nextRequestAt - SystemClock.elapsedRealtime()).coerceAtLeast(0))
                 ensureActive()
                 nextRequestAt = SystemClock.elapsedRealtime() + 3000
+                progress("OSM · téléchargement Overpass")
                 request(query)
             }
             ensureActive()
             check(!json.has("remark")) { "Incomplete Overpass response" }
+            progress("OSM · décodage et sauvegarde")
             val area = MapFeatureArea(lat, lon, fetchHalf, detailed, parse(json))
             memory = area
             runCatching {
@@ -80,6 +84,7 @@ class MapFeatureRepository(context: Context) {
         catch (error: Exception) {
             retryAt = SystemClock.elapsedRealtime() + 120_000
             Log.w("EBikeMap", "OSM unavailable; preserving existing layers", error)
+            progress("OSM · échec réseau, couches conservées")
             null
         }
     }

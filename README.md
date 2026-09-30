@@ -1,14 +1,19 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.3.1** — auteur **Lopez Alban**.
+Version Android **0.3.4** — auteur **Lopez Alban**.
+
+Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
+Voir [le chargement et les caches 3D](MAP_LOADING.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
 Les bâtiments sont représentés par leurs contours au sol (ways OpenStreetMap),
-sans hauteur inventée ; bâtiments et chemins sont omis dans la vue d'ensemble
-pour préserver la lisibilité. Les données OSM enrichies utilisent un cache v2 :
+sans hauteur inventée ; toutes les couches cochées restent affichées en vue d'ensemble.
+Les données OSM enrichies utilisent un cache v2 :
 le premier chargement peut nécessiter Internet, les suivants réutilisent le cache.
-Changer une case ne déclenche pas de nouveau téléchargement.
+Les couches OSM partagent leur cache. L'option cadastre charge séparément les
+parcelles IGN/DGFiP proches du GPS et affiche leur section et numéro (pas les
+propriétaires). Ces données sont ensuite conservées en cache local.
 
 Le projet contient deux sous-projets indépendants :
 

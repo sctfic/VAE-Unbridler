@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MapFeatureProjectionTest {
-    @Test fun pathsAndBuildingsHaveIndependentBuffersAndAreOmittedInOverview() {
+    @Test fun pathsAndBuildingsHaveIndependentBuffersAndRemainInOverview() {
         val terrain = TerrainGrid(48.0, 2.0, 100.0, 5, FloatArray(25) { 50f }, "test", true)
         val road = MapFeature(false, false, listOf(MapCoordinate(48.0, 2.0), MapCoordinate(48.0001, 2.0001)))
         val area = MapFeatureArea(48.0, 2.0, 100.0, true,
@@ -15,7 +15,7 @@ class MapFeatureProjectionTest {
         assertTrue(mesh.roads.isEmpty()); assertTrue(mesh.water.isEmpty())
         assertTrue(mesh.paths.isNotEmpty()); assertTrue(mesh.buildings.isNotEmpty())
         val overview = MapFeatureProjection.build(area, terrain, TerrainDetail.OVERVIEW)
-        assertTrue(overview.paths.isEmpty()); assertTrue(overview.buildings.isEmpty())
+        assertTrue(overview.paths.isNotEmpty()); assertTrue(overview.buildings.isNotEmpty())
     }
     @Test fun segmentCrossingTerrainIsClippedAndOutsideSegmentIsRejected() {
         val clipped = MapFeatureProjection.clip(WorldPoint(-200.0, 0.0), WorldPoint(200.0, 0.0), 100.0)!!
@@ -24,7 +24,7 @@ class MapFeatureProjectionTest {
         assertNull(MapFeatureProjection.clip(WorldPoint(-200.0, 150.0), WorldPoint(200.0, 150.0), 100.0))
     }
 
-    @Test fun waysFollowTerrainAndOverviewOmitsMinorRoads() {
+    @Test fun waysFollowTerrainAndOverviewKeepsMinorRoads() {
         val terrain = TerrainGrid(48.0, 2.0, 100.0, 5, FloatArray(25) { 50f }, "test", true)
         fun coord(east: Double) = GeoFrame.coordinate(east, 0.0, 48.0, 2.0).let { MapCoordinate(it.first, it.second) }
         val road = MapFeature(false, false, listOf(coord(-200.0), coord(200.0)))
@@ -37,7 +37,7 @@ class MapFeatureProjectionTest {
             assertEquals(1.2f, mesh.roads[i + 2], .001f)
         }
         val overview = MapFeatureProjection.build(area, terrain, TerrainDetail.OVERVIEW)
-        assertTrue(overview.roads.isEmpty()); assertTrue(overview.water.isNotEmpty())
+        assertTrue(overview.roads.isNotEmpty()); assertTrue(overview.water.isNotEmpty())
         val unavailable = terrain.copy(heights = FloatArray(25) { Float.NaN })
         assertTrue(MapFeatureProjection.build(area, unavailable, TerrainDetail.CLOSE).roads.isEmpty())
     }
