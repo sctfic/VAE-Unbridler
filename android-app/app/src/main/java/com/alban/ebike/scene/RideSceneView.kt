@@ -21,6 +21,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     var onViewModeRequested: () -> Unit = {}
     var onOptionsRequested: () -> Unit = {}
     var onFrameReady: (Long) -> Unit = {}
+    var onInteractionChanged: (Boolean) -> Unit = {}
     private val scaleGestures = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val factor = detector.scaleFactor.toDouble()
@@ -43,12 +44,14 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     })
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            onInteractionChanged(true)
             parent?.requestDisallowInterceptTouchEvent(true)
             queueEvent { sceneRenderer.orbit.touch() }
         }
         scaleGestures.onTouchEvent(event)
         gestures.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            onInteractionChanged(false)
             val now = SystemClock.uptimeMillis()
             queueEvent { sceneRenderer.orbit.release(now) }
             parent?.requestDisallowInterceptTouchEvent(false)
@@ -61,6 +64,10 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
         val now = SystemClock.uptimeMillis()
         queueEvent { sceneRenderer.orbit.movement(distanceM, now); sceneRenderer.grade = grade }
     }
+    fun selectPoint(point: WorldPoint?) { queueEvent { sceneRenderer.selectedPosition = point } }
+    fun inspectTrack(enabled: Boolean) { queueEvent { sceneRenderer.inspection = enabled; sceneRenderer.orbit.automaticPaused = enabled } }
+    fun selectedMarker() = sceneRenderer.selectedMarker
+    fun setSunlight(amount: Float) { queueEvent { sceneRenderer.sunlight = amount } }
     fun cameraPose() = sceneRenderer.cameraPose()
     fun parcelLabels() = sceneRenderer.visibleLabels
     private var running = false
@@ -86,6 +93,8 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     }
     fun pauseScene() {
         if (!running) return
+        onInteractionChanged(false)
+        queueEvent { sceneRenderer.orbit.release(SystemClock.uptimeMillis()) }
         running = false; removeCallbacks(frame); onPause()
     }
     override fun onDetachedFromWindow() { pauseScene(); super.onDetachedFromWindow() }
@@ -98,6 +107,12 @@ private class SceneRenderer : GLSurfaceView.Renderer {
     var onFrameReady: (Long) -> Unit = {}
     val orbit = SceneOrbit()
     var grade = 0f
+    var selectedPosition: WorldPoint? = null
+    var inspection = false
+    @Volatile var selectedMarker: ScreenPoint? = null
+    private var pathCenter = WorldPoint(0.0, 0.0)
+    private var fitCenter: WorldPoint? = null
+    var sunlight = 0f
     @Volatile var pending: SceneMesh? = null
     private var mesh: SceneMesh? = null
     private var buffers = emptyList<FloatBuffer>()
@@ -156,6 +171,8 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         if (next != null && next !== mesh) {
             val previous = mesh
             mesh = next
+            pathCenter = TrackCamera.barycenter(next.frame)
+            fitCenter = null
             framePoints = next.frame.map { WorldPoint(it.east - next.center.east, it.north - next.center.north, it.height - next.center.height) }
             fittedHeading = Double.NaN
             val arrays = listOf(next.surface, next.grid, next.contours, next.route, next.marker, next.routeColors, next.roads, next.waterways, next.paths, next.buildings, next.parcels)
@@ -178,7 +195,13 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             lighting = ByteBuffer.allocateDirect(light.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(light); position(0) }
             }
         }
-        val scene = mesh ?: return
+        val original = mesh ?: return
+        val scene = if (inspection) original.copy(center = pathCenter) else original
+        if (fitCenter != scene.center) {
+            framePoints = scene.frame.map { WorldPoint(it.east - scene.center.east,
+                it.north - scene.center.north, it.height - scene.center.height) }
+            fitCenter = scene.center; fittedHeading = Double.NaN
+        }
         if (program == 0) return
         heading = orbit.advance(scene.heading, SystemClock.uptimeMillis(), grade)
         visiblePose = CameraPose(heading, orbit.tilt)
@@ -188,6 +211,10 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         }
         // Expand immediately to keep every point inside; ease in when the route becomes smaller.
         distance = if (fit > distance) fit else distance + (fit - distance) * .055
+        selectedMarker = selectedPosition?.let { point ->
+            TrackCamera.project(WorldPoint(point.east - scene.center.east, point.north - scene.center.north,
+                point.height - scene.center.height), heading, distance / orbit.zoom, aspect, orbit.tilt)
+        }?.takeIf { it.depth > .5 && it.x in -1.0..1.0 && it.y in -1.0..1.0 }
         visibleLabels = scene.parcelLabels.mapNotNull { label ->
             val p = label.point
             val x = p.east - scene.center.east; val y = p.north - scene.center.north; val z = p.height - scene.center.height
@@ -213,11 +240,16 @@ private class SceneRenderer : GLSurfaceView.Renderer {
                 glEnableVertexAttribArray(colorHandle)
                 glVertexAttribPointer(colorHandle, 3, GL_FLOAT, false, 0, buffers[5])
             } else { glDisableVertexAttribArray(colorHandle); glVertexAttrib3f(colorHandle, 1f, 1f, 1f) }
-            glUniform4fv(uniforms.getValue("u_color"), 1, color, 0)
+            val adjusted = color.copyOf()
+            if (primitive != GL_TRIANGLES) {
+                for (i in 0..2) adjusted[i] = (adjusted[i] * (1 + sunlight * .4f)).coerceAtMost(1f)
+                adjusted[3] = (adjusted[3] + sunlight * .3f).coerceAtMost(1f)
+            }
+            glUniform4fv(uniforms.getValue("u_color"), 1, adjusted, 0)
             glUniform1f(uniforms.getValue("u_points"), if (primitive == GL_POINTS) 1f else 0f)
             glUniform1f(uniforms.getValue("u_size"), pointSize)
             glUniform1f(uniforms.getValue("u_lift"), lift)
-            glLineWidth(width.coerceIn(1f, maxLineWidth.coerceAtLeast(1f)))
+            glLineWidth((width * (1 + sunlight)).coerceIn(1f, maxLineWidth.coerceAtLeast(1f)))
             glVertexAttribPointer(positionHandle, 3, GL_FLOAT, false, 0, buffer)
             glDrawArrays(primitive, 0, buffer.capacity() / 3)
         }

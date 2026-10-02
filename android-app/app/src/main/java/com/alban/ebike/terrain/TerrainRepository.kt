@@ -13,14 +13,16 @@ import kotlin.coroutines.coroutineContext
 import kotlin.math.*
 
 /** Public DEM, bounded local cache. Network requests disclose the requested geographic area. */
-class TerrainRepository(context: Context) {
-    private val ign = IgnTerrainSource(context)
+class TerrainRepository(context: Context, private val onBytes: (Int) -> Unit = {}) {
+    private val ign = IgnTerrainSource(context, onBytes)
     private val cache = File(context.filesDir, "terrain-v1")
     private val legacyCache = File(context.cacheDir, "terrain-v1")
     private val memory = object : LinkedHashMap<TileKey, FloatArray>(24, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TileKey, FloatArray>?) = size > 24
     }
     private val failedAt = mutableMapOf<TileKey, Long>()
+
+    fun clearMemory() { memory.clear(); ign.clearMemory() }
 
     suspend fun load(lat: Double, lon: Double, halfSizeM: Double,
         detail: TerrainDetail = TerrainDetail.CLOSE, progress: (String) -> Unit = {},
@@ -138,6 +140,7 @@ class TerrainRepository(context: Context) {
         while (true) {
             val count = read(buffer)
             if (count < 0) break
+            onBytes(count)
             check(output.size() + count <= limit)
             output.write(buffer, 0, count)
         }

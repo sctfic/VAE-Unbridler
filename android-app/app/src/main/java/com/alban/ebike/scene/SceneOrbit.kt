@@ -10,6 +10,7 @@ class SceneOrbit {
         private set
     var zoom = 1.0
         private set
+    var automaticPaused = false
     private var touching = false
     private var releasedAt = Long.MIN_VALUE
     private var frameAt = -1L
@@ -28,9 +29,10 @@ class SceneOrbit {
     fun advance(automaticHeading: Double, now: Long, grade: Float = 0f): Double {
         val dt = if (frameAt < 0) 0.0 else ((now - frameAt) / 1000.0).coerceIn(0.0, .1)
         frameAt = now
-        if (touching || releasedAt != Long.MIN_VALUE && now - releasedAt < 3000) return heading
+        if (automaticPaused || touching || releasedAt != Long.MIN_VALUE && now - releasedAt < 3000) return heading
         val response = 1 - exp(-dt / .7)
-        val targetTilt = (TrackCamera.TILT - atan(grade.toDouble() / 100) * 1.5)
+        val baseTilt = if (progressAt >= 0 && now - progressAt < 5000) Math.toRadians(38.0) else TrackCamera.TILT
+        val targetTilt = (baseTilt - atan(grade.toDouble() / 100) * 1.5)
             .coerceIn(Math.toRadians(30.0), Math.toRadians(70.0))
         tilt += (targetTilt - tilt) * response
         zoom += (1.0 - zoom) * response

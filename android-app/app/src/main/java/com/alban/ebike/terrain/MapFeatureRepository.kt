@@ -16,12 +16,33 @@ import java.security.MessageDigest
 import kotlin.math.abs
 
 /** Cache-first OSM ways. Never blocks or replaces the IGN terrain. */
-class MapFeatureRepository(context: Context) {
+class MapFeatureRepository(context: Context, private val onBytes: (Int) -> Unit = {}) {
+    @Volatile var pinWrites = false
     private val cache = File(context.filesDir, "map-features-v2")
-    private var memory: MapFeatureArea? = null
-    private var retryAt = 0L
+    @Volatile private var memory: MapFeatureArea? = null
+    @Volatile private var retryAt = 0L
 
-    suspend fun load(terrain: TerrainGrid, progress: (String) -> Unit = {}): MapFeatureArea? = withContext(Dispatchers.IO) {
+    fun clearMemory() { memory = null; retryAt = 0 }
+
+    suspend fun load(terrain: TerrainGrid, progress: (String) -> Unit = {}): MapFeatureArea? {
+        val sw = GeoFrame.coordinate(-terrain.halfSizeM, -terrain.halfSizeM, terrain.originLat, terrain.originLon)
+        val ne = GeoFrame.coordinate(terrain.halfSizeM, terrain.halfSizeM, terrain.originLat, terrain.originLon)
+        val a = ElevationTiles.key(sw.first, sw.second, 2); val b = ElevationTiles.key(ne.first, ne.second, 2)
+        val found = ArrayList<MapFeature>()
+        var complete = true
+        for (x in a.x..b.x) for (y in a.y..b.y) {
+            val area = loadTile(ElevationTileKey(2, x, y), progress)
+            if (area == null) complete = false else { found.addAll(area.features); complete = complete && area.complete }
+        }
+        return if (found.isEmpty() && !complete) null else MapFeatureArea(terrain.originLat,
+            terrain.originLon, terrain.halfSizeM, true, found, complete)
+    }
+    suspend fun loadTile(key: ElevationTileKey, progress: (String) -> Unit = {}): MapFeatureArea? {
+        val center = ElevationTiles.coordinate((key.x + .5) * key.side, (key.y + .5) * key.side)
+        val half = key.side / 2 * kotlin.math.cos(Math.toRadians(center.first))
+        return loadArea(TerrainGrid(center.first, center.second, half, 2, FloatArray(4), "", false), progress)
+    }
+    suspend fun loadArea(terrain: TerrainGrid, progress: (String) -> Unit = {}): MapFeatureArea? = withContext(Dispatchers.IO) {
         progress("OSM · recherche cache")
         val lat = terrain.originLat; val lon = terrain.originLon
         val half = terrain.halfSizeM.coerceAtMost(12_000.0)
@@ -64,22 +85,25 @@ class MapFeatureRepository(context: Context) {
             progress("OSM · décodage et sauvegarde")
             val area = MapFeatureArea(lat, lon, fetchHalf, detailed, parse(json))
             memory = area
-            runCatching {
+            val saved = runCatching {
                 check(cache.isDirectory || cache.mkdirs())
                 val key = MessageDigest.getInstance("SHA-256").digest("$lat/$lon/$half/$detailed".toByteArray())
                     .joinToString("") { "%02x".format(it) }
-                val part = File(cache, "$key.part")
+                val part = File.createTempFile("osm-", ".part", cache)
                 part.writeText(JSONObject().put("lat", lat).put("lon", lon).put("half", fetchHalf)
                     .put("detailed", detailed).put("data", json).toString())
                 check(part.renameTo(File(cache, "$key.json")))
+                if (pinWrites) File(cache, "$key.json.pin").writeText("")
                 var total = cache.listFiles()?.sumOf { it.length() } ?: 0
                 for (file in cache.listFiles { f -> f.extension == "json" }?.sortedBy { it.lastModified() }.orEmpty()) {
                     if (total <= 64L * 1024 * 1024) break
+                    if (File(cache, file.name + ".pin").exists()) continue
                     val length = file.length(); if (file.delete()) total -= length
                 }
-            }.onFailure { Log.w("EBikeMap", "OSM cache write failed", it) }
+            }.onFailure { Log.w("EBikeMap", "OSM cache write failed", it) }.isSuccess
             Log.i("EBikeMap", "OSM loaded: ${area.features.count { !it.water }} roads, ${area.features.count { it.water }} waterways")
-            area
+            if (!saved) memory = null
+            area.copy(complete = saved)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             retryAt = SystemClock.elapsedRealtime() + 120_000
@@ -111,7 +135,7 @@ class MapFeatureRepository(context: Context) {
                 val lon = node?.optDouble("lon", Double.NaN) ?: Double.NaN
                 if (lat !in -90.0..90.0 || lon !in -180.0..180.0) { flush(); continue }
                 points.add(MapCoordinate(lat, lon))
-                if (++totalPoints >= 150_000) { flush(); return result }
+                check(++totalPoints < 150_000) { "OSM zone trop dense : données incomplètes" }
             }
             flush()
         }
@@ -133,6 +157,7 @@ class MapFeatureRepository(context: Context) {
                 while (true) {
                     val count = input.read(buffer); if (count < 0) break
                     check(output.size() + count <= MAX_BYTES) { "OSM response too large" }
+                    onBytes(count)
                     output.write(buffer, 0, count)
                 }
                 output.toByteArray()

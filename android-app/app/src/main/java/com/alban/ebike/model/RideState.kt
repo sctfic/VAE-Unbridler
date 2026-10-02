@@ -12,6 +12,12 @@ data class TrackPoint(
     val speedKmh: Float? = null,
     val gradePercent: Float? = null,
     val altitudeValid: Boolean = true,
+    val movingTimeMs: Long? = null,
+    val restTimeMs: Long? = null,
+    val resting: Boolean = false,
+    val elevationGainM: Float? = null,
+    val speedApproximate: Boolean = false,
+    val speedSource: String? = null,
 )
 
 data class RideUiState(
@@ -22,6 +28,11 @@ data class RideUiState(
     val gpsStatus: String = "GPS en attente",
     val gpsSpeedKmh: Float = 0f,
     val gpsSpeedValid: Boolean = false,
+    val gpsSpeedApproximate: Boolean = false,
+    val movingTimeMs: Long = 0L,
+    val restTimeMs: Long = 0L,
+    val resting: Boolean = false,
+    val elevationGainM: Float = 0f,
     val wheelSpeedKmh: Float = 0f,
     val motorSpeedKmh: Float = 0f,
     val altitudeM: Float? = null,

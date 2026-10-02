@@ -1,3 +1,5 @@
+> Mise à jour 0.4.0 : les objets OSM sont désormais acquis par tuiles de niveau 2 autour du GPS (zone de 1,8 km de côté plus marge), indépendamment de l’étendue du trajet. Le préchargement Options → Hors ligne conserve un secteur de 90°, rayon 2–50 km, orienté dans huit directions. Le relief de niveau 1 et les calques activés sont mis en cache, avec état complet/partiel et reprise. Les fichiers protégés hors ligne échappent à la limite LRU habituelle ; ils peuvent donc occuper davantage d’espace. Voir [les détails et limites](RELEASE_0.4.0.md).
+
 # Chargement 3D et diagnostic — 0.3.3
 
 Depuis 0.3.3, les altitudes sont acquises par petites tuiles fixes. La tuile GPS

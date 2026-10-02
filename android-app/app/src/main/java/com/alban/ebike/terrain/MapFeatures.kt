@@ -9,7 +9,7 @@ data class MapCoordinate(val latitude: Double, val longitude: Double)
 data class MapFeature(val water: Boolean, val major: Boolean, val points: List<MapCoordinate>,
     val path: Boolean = false, val building: Boolean = false)
 data class MapFeatureArea(val latitude: Double, val longitude: Double, val halfSizeM: Double,
-    val detailed: Boolean, val features: List<MapFeature>)
+    val detailed: Boolean, val features: List<MapFeature>, val complete: Boolean = true)
 data class MapFeatureMesh(val roads: FloatArray = floatArrayOf(), val water: FloatArray = floatArrayOf(),
     val paths: FloatArray = floatArrayOf(), val buildings: FloatArray = floatArrayOf())
 

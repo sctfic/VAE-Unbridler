@@ -41,14 +41,14 @@ class DistanceAltitudeProfileTest {
         assertNull(profile.grade())
     }
 
-    @Test fun gradeMatchesTerminalTwentyMetersAndRemainsFixedAtRest() {
+    @Test fun gradeMatchesLatestPointsAndRemainsFixedAtRest() {
         val profile = DistanceAltitudeProfile()
         for (i in 0..10) profile.update(i * 5.0, 100f + i * .5f)
         assertEquals(10f, profile.grade()!!, .001f)
         repeat(1000) { profile.update(50.0, 200f + it); assertEquals(10f, profile.grade()!!, .001f) }
     }
 
-    @Test fun slopeInterpolatesReferenceAndIsNotClampedAtTwentyFivePercent() {
+    @Test fun slopeUsesActualPointsAndIsNotClampedAtTwentyFivePercent() {
         val profile = DistanceAltitudeProfile()
         profile.update(0.0, 100f); profile.update(15.0, 106f); profile.update(27.0, 110.8f)
         assertEquals(40f, profile.grade()!!, .001f)
@@ -68,4 +68,34 @@ class DistanceAltitudeProfileTest {
         assertTrue(DistanceAltitudeProfile.visible(all, 3000.0, 2000.0).first().distanceM <= 1000.0)
         assertEquals(0f, DistanceAltitudeProfile.horizontalFraction(1000.0, 3000.0, 2000.0), 0f)
     }
+    @Test fun sameGradeForShortAndLongGpsSpacing() {
+        for (spacing in listOf(.5, 2.0, 30.0)) {
+            val profile = DistanceAltitudeProfile()
+            for (i in 0..9) profile.update(i * spacing, (100 + i * spacing * .1).toFloat())
+            assertEquals(10f, profile.grade()!!, .001f)
+        }
+    }
+
+    @Test fun ignoresEverythingBeforeLastTenSamples() {
+        val profile = DistanceAltitudeProfile()
+        for (i in 0..9) profile.update(i.toDouble(), 200f - i * 10)
+        for (i in 10..19) profile.update(i.toDouble(), 100f + (i - 10) * .1f)
+        assertEquals(10f, profile.grade()!!, .001f)
+    }
+
+    @Test fun configurableCountChangesWindowWithoutInterpolating() {
+        val points = listOf(
+            com.alban.ebike.model.AltitudePoint(0.0, 100f, true),
+            com.alban.ebike.model.AltitudePoint(10.0, 100f),
+            com.alban.ebike.model.AltitudePoint(20.0, 102f),
+            com.alban.ebike.model.AltitudePoint(30.0, 104f))
+        assertEquals(20f, DistanceAltitudeProfile.terminalGrade(points, 3)!!, .001f)
+        assertEquals(14f, DistanceAltitudeProfile.terminalGrade(points, 4)!!, .001f)
+    }
+
+    @Test fun repeatedDistancesCannotInventSlope() {
+        val points = List(10) { com.alban.ebike.model.AltitudePoint(1.0, 100f + it) }
+        assertNull(DistanceAltitudeProfile.terminalGrade(points))
+    }
+
 }

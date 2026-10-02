@@ -35,6 +35,9 @@ object GeoFrame {
 object TrackCamera {
     const val TILT = 0.8726646259971648 // 50 degrees above the ground
     const val FOCAL = 1.9
+    fun barycenter(points: List<WorldPoint>): WorldPoint = if (points.isEmpty()) WorldPoint(0.0, 0.0) else
+        WorldPoint(points.sumOf { it.east } / points.size, points.sumOf { it.north } / points.size,
+            points.sumOf { it.height } / points.size)
     fun project(point: WorldPoint, heading: Double, distance: Double, aspect: Double, tilt: Double = TILT): ScreenPoint {
         val right = point.east * cos(heading) - point.north * sin(heading)
         val forward = point.east * sin(heading) + point.north * cos(heading)

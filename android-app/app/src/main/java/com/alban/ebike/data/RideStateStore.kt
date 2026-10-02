@@ -24,6 +24,11 @@ object RideStateStore {
     private var lastFixTimeMs = -1L
     private var filteredAltitude: Float? = null
     private var distanceM = 0.0
+    private val regression = com.alban.ebike.location.PositionSpeedRegression()
+    private val movingTimer = MovingTimer()
+    private val elevationGain = ElevationGain()
+    @Volatile var movingThresholdKmh = 4f
+    @Volatile var gradePointCount = DistanceAltitudeProfile.DEFAULT_GRADE_POINTS
     private val motionFilter = GpsMotionFilter()
     private val trackFilter = GpsTrackFilter()
     private var lastReliableSpeedMs = 0L
@@ -32,10 +37,11 @@ object RideStateStore {
     fun resetRide() {
         track.clear(); trackPoints = emptyList(); profile.clear()
         distanceM = 0.0; filteredAltitude = null
+        movingTimer.reset(); elevationGain.reset()
         resetGpsSpeed()
         RideTrackJournal.startNewRide()
         _state.update { it.copy(distanceM = 0.0, track = emptyList(), profile = emptyList(),
-            position = null, altitudeM = null, inclinePercent = 0f, inclineValid = false) }
+            position = null, altitudeM = null, movingTimeMs = 0, restTimeMs = 0, resting = false, elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
         GpsDebugLog.record("RESET trajet confirmé")
     }
 
@@ -45,11 +51,14 @@ object RideStateStore {
             _state.update { it.copy(gpsSpeedKmh = 0f, gpsSpeedValid = false,
                 gpsStatus = "Signal GPS en attente") }
         }
+        val elapsed = movingTimer.update(nowMs, _state.value.displayedSpeedKmh, movingThresholdKmh)
+        _state.update { it.copy(movingTimeMs = elapsed, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting) }
     }
 
     @Synchronized
     fun resetGpsSpeed() {
         motionFilter.reset()
+        regression.reset()
         trackFilter.reset()
         lastFixTimeMs = -1L
         lastReliableSpeedMs = 0
@@ -100,6 +109,9 @@ object RideStateStore {
             motionFilter.reset()
             motion = GpsMotionFilter.Result(0f, false, false, decision.reason)
         } else lastFixTimeMs = fixTimeMs
+        val estimated = if (decision.accepted) regression.accept(fix, nowMs) else { regression.reset(); null }
+        val approximate = (!motion.reliable || motion.reason.startsWith("maintien")) && estimated != null
+        if (approximate) motion = GpsMotionFilter.Result(estimated!!, true, estimated > 1.8f, "régression coordonnées · approximation")
         val accuracy = if (location.hasAccuracy()) "%.0f".format(location.accuracy) else "?"
         val rawSpeed = if (location.hasSpeed()) "%.1f".format(location.speed * 3.6f) else "?"
         val speedError = if (location.hasSpeedAccuracy()) "%.2f".format(location.speedAccuracyMetersPerSecond) else "?"
@@ -111,23 +123,33 @@ object RideStateStore {
             "speedValid=${motion.reliable} moving=${motion.moving} output=${motion.speedKmh} " +
             "trace=${decision.reason} append=${decision.append} segmentStart=${decision.segmentStart} stepM=${decision.distanceM}")
         if (motion.reliable) lastReliableSpeedMs = fixTimeMs
-        _state.update { it.copy(gpsSpeedKmh = motion.speedKmh, gpsSpeedValid = motion.reliable) }
+        _state.update { it.copy(gpsSpeedKmh = motion.speedKmh, gpsSpeedValid = motion.reliable, gpsSpeedApproximate = approximate) }
+        expireGpsSpeed(nowMs)
         if (!decision.accepted) return
         val time = location.time.takeIf { it > 0 } ?: System.currentTimeMillis()
         distanceM += decision.distanceM
 
-        val hasAltitude = location.hasAltitude() && location.altitude.isFinite()
+        val hasAltitude = location.hasAltitude() && location.altitude.isFinite() &&
+            (!location.hasVerticalAccuracy() || location.verticalAccuracyMeters <= 15f)
         if (hasAltitude && (filteredAltitude == null || decision.distanceM > 0 || decision.segmentStart)) {
             val rawAltitude = location.altitude.toFloat()
-            filteredAltitude = filteredAltitude?.let { it * 0.80f + rawAltitude * 0.20f } ?: rawAltitude
+            val alpha = (1 - kotlin.math.exp(-decision.distanceM / 8.0)).toFloat().coerceIn(0f, 1f)
+            filteredAltitude = if (decision.segmentStart) rawAltitude else
+                filteredAltitude?.let { it + alpha * (rawAltitude - it) } ?: rawAltitude
         }
+        if (!hasAltitude) filteredAltitude = null
         val altitude = filteredAltitude
-        val profilePoints = if (decision.append) profile.update(distanceM,
+        val profilePoints = if (decision.append || !hasAltitude) profile.update(distanceM,
             altitude.takeIf { hasAltitude }, decision.segmentStart) else _state.value.profile
-        val inclination = profile.grade()
+        if (decision.append || !hasAltitude) elevationGain.update(altitude.takeIf { hasAltitude }, decision.segmentStart)
+        val inclination = profile.grade(gradePointCount)
         GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude append=${decision.append}")
+        val snapshot = _state.value
         val point = TrackPoint(location.latitude, location.longitude, altitude ?: 0f, time,
-            distanceM, decision.segmentStart, motion.speedKmh.takeIf { motion.reliable }, inclination, hasAltitude)
+            distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, inclination, hasAltitude,
+            movingTimeMs = movingTimer.milliseconds, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting, elevationGainM = elevationGain.metres,
+            speedApproximate = snapshot.gpsSpeedValid && snapshot.gpsSpeedApproximate,
+            speedSource = snapshot.displayedSpeedSource)
         if (decision.append) {
             trackPoints = track.add(point)
             RideTrackJournal.record(point)
@@ -136,6 +158,8 @@ object RideStateStore {
             gpsStatus = diagnostic,
             gpsSpeedKmh = motion.speedKmh,
             gpsSpeedValid = motion.reliable,
+            gpsSpeedApproximate = approximate,
+            elevationGainM = elevationGain.metres,
             altitudeM = altitude,
             inclinePercent = inclination ?: 0f,
             inclineValid = inclination != null,

@@ -8,22 +8,33 @@ import com.alban.ebike.scene.GeoFrame
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.io.File
 import kotlin.math.*
 
 /** Acquisition survives rotation; zoom only changes render detail, never the source sample density. */
 class TerrainViewModel(application: Application) : AndroidViewModel(application) {
+    private val mutableDownloadedBytes = MutableStateFlow(0L)
+    val downloadedBytes = mutableDownloadedBytes.asStateFlow()
+    private val receiveBytes: (Int) -> Unit = { count -> mutableDownloadedBytes.update { it + count } }
+    private val cacheStorage = MapCacheStorage(application.filesDir, application.cacheDir)
+    private val mutableCacheBytes = MutableStateFlow(0L)
+    val cacheBytes = mutableCacheBytes.asStateFlow()
+    private val mutableCacheClearing = MutableStateFlow(false)
+    val cacheClearing = mutableCacheClearing.asStateFlow()
+    @Volatile private var cachePaused = false
+    @Volatile private var resumeAfterClear = false
     val diagnostics = LoadDiagnostics()
     val geometryCache = GeometryCache(File(application.filesDir, "geometry-v1"))
-    private val ign = IgnTerrainSource(application)
-    private val fallback = TerrainRepository(application)
-    private val objects = MapFeatureRepository(application)
+    private val ign = IgnTerrainSource(application, receiveBytes)
+    private val fallback = TerrainRepository(application, receiveBytes)
+    private val objects = MapFeatureRepository(application, receiveBytes)
     private val store = ElevationTileStore(File(application.filesDir, "elevation-tiles-v1"))
     private val mutableTerrain = MutableStateFlow<TerrainGrid?>(null)
     val terrain = mutableTerrain.asStateFlow()
     private val mutableMap = MutableStateFlow<MapFeatureArea?>(null)
     val mapArea = mutableMap.asStateFlow()
-    private val cadastre = CadastreRepository(application)
+    private val cadastre = CadastreRepository(application, receiveBytes)
     private val mutableParcels = MutableStateFlow<List<Parcel>>(emptyList())
     val parcels = mutableParcels.asStateFlow()
     private var parcelJob: Job? = null
@@ -33,6 +44,7 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
         cadastre.load(key) { diagnostics.report("CAD", it) }
     }
     fun requestParcels(lat: Double, lon: Double, enabled: Boolean) {
+        if (cachePaused) return
         if (!enabled) { parcelJob?.cancel(); parcelKey = null; mutableParcels.value = emptyList(); return }
         val key = ElevationTiles.key(lat, lon, 1)
         if (parcelKey == key && (parcelJob?.isActive == true || LoadDiagnostics.now() < parcelRetryAfter)) return
@@ -69,6 +81,7 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun request(lat: Double, lon: Double, half: Double, gpsLat: Double, gpsLon: Double) {
+        if (cachePaused) return
         val next = Request(ElevationTiles.region(lat, lon, half), ElevationTiles.key(gpsLat, gpsLon))
         if (requested == next && (terrainJob?.isActive == true || LoadDiagnostics.now() < retryAfter)) return
         requested = next
@@ -97,7 +110,11 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
                 "IGN PROGRESSIF · $cached CACHE / $fetched ACQUISES · ${order.count { it in loaded }}/${order.size} TUILES")
             // Never replace usable terrain with an empty intermediate grid.
             if (grid.real || mutableTerrain.value == null) mutableTerrain.value = grid
-            requestObjects(region, grid)
+            val focusCenter = ElevationTiles.coordinate((request.focus.x + .5) * request.focus.side,
+                (request.focus.y + .5) * request.focus.side)
+            val localRegion = ElevationTiles.region(focusCenter.first, focusCenter.second, 900.0)
+            requestObjects(localRegion, TerrainGrid(focusCenter.first, focusCenter.second, 900.0, 2,
+                FloatArray(4), "", true))
         }
         publish()
         for (key in order) {
@@ -138,7 +155,7 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun requestObjects(region: ElevationRegion, grid: TerrainGrid) {
-        if (!grid.real) return
+        if (cachePaused) return
         if (mapRegion == region && (mapJob?.isActive == true || LoadDiagnostics.now() < mapRetryAfter)) return
         mapRegion = region
         mapJob?.cancel()
@@ -148,11 +165,108 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
             val area = objects.load(grid) { diagnostics.report("OSM", it) }
             ensureActive()
             if (area != null) mutableMap.value = area
-            mapRetryAfter = LoadDiagnostics.now() + if (area == null) 120_000 else 86_400_000
+            mapRetryAfter = LoadDiagnostics.now() + if (area?.complete != true) 120_000 else 86_400_000
             diagnostics.end("OSM")
-            if (area != null) break
+            if (area?.complete == true) break
             delay(120_000)
             } while (isActive)
+        }
+    }
+
+    private val offlinePreferences = application.getSharedPreferences("offline-status", android.content.Context.MODE_PRIVATE)
+    private val mutableOffline = MutableStateFlow(offlinePreferences.getString("status", null)
+        ?: "Aucune zone préchargée")
+    val offlineStatus = mutableOffline.asStateFlow()
+    private val mutableOfflineRunning = MutableStateFlow(false)
+    val offlineRunning = mutableOfflineRunning.asStateFlow()
+    private var offlineJob: Job? = null
+    fun cancelOffline() { offlineJob?.cancel() }
+    fun preload(lat: Double, lon: Double, radiusKm: Int, direction: Int, layers: Map<String, Boolean>) {
+        if (offlineJob?.isActive == true || mutableCacheClearing.value) return
+        cachePaused = false; geometryCache.enabled = true
+        offlineJob = viewModelScope.launch(Dispatchers.IO) {
+            mutableOfflineRunning.value = true
+            offlinePreferences.edit().putString("status", "Préchargement interrompu avant sa fin · relancer pour compléter").apply()
+            store.pinWrites = true; objects.pinWrites = true; cadastre.pinWrites = true
+            var done = 0; var missing = 0
+            val elevation = OfflineSector.tiles(lat, lon, radiusKm, direction, 1)
+            val map = if (listOf("roads", "paths", "water", "buildings").any { layers[it] == true })
+                OfflineSector.tiles(lat, lon, radiusKm, direction, 2) else emptyList()
+            val parcels = if (layers["parcels"] == true) elevation else emptyList()
+            val total = elevation.size + map.size + parcels.size
+            val root = getApplication<Application>().filesDir
+            fun pinCaches() {
+                for (directory in listOf("elevation-tiles-v1", "map-features-v2", "cadastre-pci-v1")) {
+                    File(root, directory).listFiles { file -> file.extension in listOf("bin", "json") }
+                        .orEmpty().forEach { file ->
+                            val pin = File(file.parentFile, file.name + ".pin")
+                            if (!pin.exists()) pin.writeText("")
+                        }
+                }
+            }
+            suspend fun step(action: suspend () -> Boolean) {
+                ensureActive()
+                check(root.usableSpace > 128L * 1024 * 1024) { "Espace libre insuffisant (128 Mio réservés)" }
+                mutableOffline.value = "Préchargement $done/$total · $missing indisponibles"
+                try { if (!action()) missing++ }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { missing++ }
+                done++
+            }
+            try {
+                pinCaches()
+                for (key in elevation) step {
+                    downloads.get(key)?.all { it.isFinite() } == true && File(root, "elevation-tiles-v1/${key.fileName}").exists()
+                }
+                for (key in map) step { objects.loadTile(key)?.complete == true }
+                for (key in parcels) step {
+                    cadastre.load(key, refreshPartial = true) {}
+                    val file = File(root, "cadastre-pci-v1/${key.level}-${key.x}-${key.y}.json")
+                    file.exists() && !org.json.JSONObject(file.readText()).optBoolean("partial")
+                }
+                mutableOffline.value = if (missing == 0) "Zone prête hors ligne · $done éléments conservés" else
+                    "Zone partielle · $done/$total traités · $missing indisponibles. Relancer pour compléter."
+            } catch (cancelled: CancellationException) {
+                mutableOffline.value = "Interrompu · $done/$total traités, téléchargements conservés"; throw cancelled
+            } catch (error: Exception) { mutableOffline.value = "Arrêt : ${error.message} · $done/$total" }
+            finally {
+                store.pinWrites = false; objects.pinWrites = false; cadastre.pinWrites = false
+                offlinePreferences.edit().putString("status", mutableOffline.value).apply()
+                mutableOfflineRunning.value = false
+            }
+        }
+    }
+
+    suspend fun refreshCacheSize() = withContext(Dispatchers.IO) {
+        mutableCacheBytes.value = cacheStorage.bytes()
+    }
+    fun resumeCacheLoads() {
+        resumeAfterClear = true
+        if (!mutableCacheClearing.value) { cachePaused = false; geometryCache.enabled = true }
+    }
+    fun clearDownloadedCache() {
+        if (mutableCacheClearing.value) return
+        cachePaused = true; resumeAfterClear = false; geometryCache.enabled = false
+        mutableCacheClearing.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val jobs = listOfNotNull(offlineJob, terrainJob, mapJob, parcelJob)
+                jobs.forEach { it.cancel() }; jobs.joinAll()
+                downloads.cancelAll(); parcelRequests.cancelAll()
+                store.clearMemory(); objects.clearMemory(); ign.clearMemory(); fallback.clearMemory(); geometryCache.clearMemory()
+                mutableTerrain.value = null; mutableMap.value = null; mutableParcels.value = emptyList()
+                requested = null; mapRegion = null; parcelKey = null
+                retryAfter = 0; mapRetryAfter = 0; parcelRetryAfter = 0
+                val complete = cacheStorage.clear()
+                refreshCacheSize()
+                mutableOffline.value = if (complete) "Cache cartographique effacé" else "Effacement partiel · réessayer"
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { mutableOffline.value = "Échec de l’effacement · réessayer" }
+            finally {
+                offlinePreferences.edit().putString("status", mutableOffline.value).apply()
+                mutableCacheClearing.value = false
+                if (resumeAfterClear) { cachePaused = false; geometryCache.enabled = true }
+            }
         }
     }
 

@@ -16,7 +16,7 @@ import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
 
 /** Numeric ground elevations from RGE ALTI 1m; no rendered map image decoding. IO caller only. */
-class IgnTerrainSource(context: Context) {
+class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}) {
     data class Result(val originLat: Double, val originLon: Double, val halfSizeM: Double,
         val heights: FloatArray, val cached: Boolean) {
         val size: Int get() = kotlin.math.sqrt(heights.size.toDouble()).toInt()
@@ -25,6 +25,8 @@ class IgnTerrainSource(context: Context) {
     private val legacyCache = File(context.cacheDir, "terrain-ign-rge1m-v1")
     private var retryAt = 0L
     private val emptyUntil = LinkedHashMap<String, Long>()
+
+    fun clearMemory() { retryAt = 0; emptyUntil.clear() }
 
     suspend fun load(lat: Double, lon: Double, halfSize: Double, size: Int = IgnElevationPolicy.SIZE,
         progress: (String) -> Unit = {}, preview: (Result) -> Unit = {}): Result? {
@@ -157,6 +159,7 @@ class IgnTerrainSource(context: Context) {
                 while (true) {
                     val count = input.read(block); if (count < 0) break
                     check(out.size() + count <= 1024 * 1024)
+                    onBytes(count)
                     out.write(block, 0, count)
                 }
                 out.toString("UTF-8")

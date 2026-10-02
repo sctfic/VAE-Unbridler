@@ -8,6 +8,11 @@ import kotlinx.coroutines.sync.withLock
 class SharedTileRequests<K, V>(private val scope: CoroutineScope, private val fetch: suspend (K) -> V) {
     private val mutex = Mutex()
     private val pending = HashMap<K, Deferred<V>>()
+    suspend fun cancelAll() {
+        val requests = mutex.withLock { pending.values.toList().also { pending.clear() } }
+        requests.forEach { it.cancel() }
+        requests.joinAll()
+    }
     suspend fun get(key: K): V {
         val request = mutex.withLock {
             pending.entries.removeAll { it.value.isCompleted }

@@ -36,19 +36,36 @@ import kotlin.math.*
 @Composable
 internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteMetric,
     window: SceneWindow, onWindowChange: (SceneWindow) -> Unit, onReset: () -> Unit,
-    debugVisible: Boolean, onDebugChange: (Boolean) -> Unit, onStatus: (String) -> Unit) {
+    debugVisible: Boolean, onDebugChange: (Boolean) -> Unit, selectedPoint: com.alban.ebike.model.TrackPoint? = null, profileDragging: Boolean = false,
+    onSceneTouch: (Boolean) -> Unit = {}, onStatus: (String) -> Unit) {
     val context = LocalContext.current
     val terrainModel = remember(context) {
         androidx.lifecycle.ViewModelProvider(context.terrainActivity())[TerrainViewModel::class.java]
     }
+    val offlineStatus by terrainModel.offlineStatus.collectAsState()
+    val offlineRunning by terrainModel.offlineRunning.collectAsState()
+    val downloadedBytes by terrainModel.downloadedBytes.collectAsState()
+    val cacheBytes by terrainModel.cacheBytes.collectAsState()
+    val cacheClearing by terrainModel.cacheClearing.collectAsState()
+    var confirmClearCache by remember { mutableStateOf(false) }
+    var optionsTab by rememberSaveable { mutableIntStateOf(0) }
+    var radiusKm by rememberSaveable { mutableFloatStateOf(5f) }
+    var direction by rememberSaveable { mutableIntStateOf(0) }
     val diagnostics = terrainModel.diagnostics
     val steps by diagnostics.steps.collectAsState()
     var debugNow by remember { mutableLongStateOf(LoadDiagnostics.now()) }
     val geometryCache = terrainModel.geometryCache
     val preferences = remember { context.getSharedPreferences("scene-layers", android.content.Context.MODE_PRIVATE) }
     var optionsOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(optionsOpen, optionsTab) {
+        if (!optionsOpen) terrainModel.resumeCacheLoads()
+        if (optionsOpen && optionsTab == 1) while (isActive) {
+            terrainModel.refreshCacheSize(); delay(2000)
+        }
+    }
     var layers by remember { mutableStateOf(listOf("contours", "water", "roads", "paths", "buildings", "parcels")
         .associateWith { preferences.getBoolean(it, it != "parcels") }) }
+    val currentLayers by rememberUpdatedState(layers)
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val view = remember { RideSceneView(context) }
@@ -61,18 +78,33 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     val report by rememberUpdatedState(onStatus)
     val reset by rememberUpdatedState(onReset)
     val detail = TerrainDetail.forWindow(window)
-    val selectedTrack = remember(state.track, window) { TrackWindow.select(state.track, window) }
+    val selectedTrack = remember(state.track, window, selectedPoint != null) {
+        if (selectedPoint != null) state.track else TrackWindow.select(state.track, window)
+    }
     SideEffect {
         view.onFrameReady = { milliseconds ->
             diagnostics.report("GPU", "Buffers + commandes de rendu : ${milliseconds} ms")
             diagnostics.end("GPU")
         }
+        view.onInteractionChanged = onSceneTouch
+        view.inspectTrack(profileDragging || selectedPoint != null)
         view.onResetRequested = { reset() }
         view.onOptionsRequested = { optionsOpen = true }
         view.onViewModeRequested = { onWindowChange(window.next()) }
         view.updateMovement(state.distanceM, state.inclinePercent.takeIf { state.inclineValid } ?: 0f)
     }
     val terrain by terrainModel.terrain.collectAsState()
+    LaunchedEffect(selectedPoint, terrain) {
+        val grid = terrain
+        val point = selectedPoint
+        view.selectPoint(if (point != null && grid != null) {
+            val local = GeoFrame.local(point.latitude, point.longitude, grid.originLat, grid.originLon)
+            val base = grid.heights.filter { it.isFinite() }.minOrNull() ?: 0f
+            local.copy(height = ((grid.sampleSmooth(local.east, local.north) ?: base.toDouble()) - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 3)
+        } else null)
+    }
+    val light = rememberAmbientLight()
+    SideEffect { view.setSunlight(light) }
     LaunchedEffect(parcels, terrain) {
         parcelMesh = withContext(Dispatchers.Default) { ParcelGeometry.build(parcels, terrain) }
     }
@@ -83,6 +115,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     LaunchedEffect(terrain) { terrain?.let { report(it.status) } }
     var heading by remember { mutableDoubleStateOf(0.0) }
     var cameraPose by remember { mutableStateOf(CameraPose()) }
+    var selectionMarker by remember { mutableStateOf<ScreenPoint?>(null) }
     var active by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     DisposableEffect(lifecycle, view) {
         val observer = LifecycleEventObserver { _, event ->
@@ -112,14 +145,14 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
                 val center = GeoFrame.coordinate(east, north, position.latitude, position.longitude)
                 val radius = max(550.0, offsets.maxOf { max(abs(it.east - east), abs(it.north - north)) } * 2.3 + 150)
                 terrainModel.request(center.first, center.second, radius * 1.35, position.latitude, position.longitude)
-                terrainModel.requestParcels(position.latitude, position.longitude, layers["parcels"] == true)
+                terrainModel.requestParcels(position.latitude, position.longitude, currentLayers["parcels"] == true)
             }
             delay(5000)
         }
     }
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        while (isActive) { cameraPose = view.cameraPose(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(100) }
+        while (isActive) { cameraPose = view.cameraPose(); selectionMarker = view.selectedMarker(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(33) }
     }
     LaunchedEffect(active, mapArea, terrain, detail) {
         if (!active) return@LaunchedEffect
@@ -177,6 +210,12 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         CompassRose(cameraPose, Modifier.align(Alignment.TopEnd)
             .padding(top = 2.dp).offset(x = 4.dp)
             .size(116.dp, if (landscape) 96.dp else 110.dp))
+        if (selectedPoint != null) Canvas(Modifier.fillMaxSize()) {
+            selectionMarker?.let { point ->
+                drawSelectionMarker(Offset(((point.x + 1) * size.width / 2).toFloat(),
+                    ((1 - point.y) * size.height / 2).toFloat()))
+            }
+        }
         if (debugVisible) Column(Modifier.align(Alignment.CenterStart).padding(start = 10.dp)
             .background(Color(0xB3050A11)).padding(5.dp)) {
             Text("DEBUG CHARGEMENT 3D", fontSize = 9.sp, color = Color(0xFF69E3F5))
@@ -188,10 +227,40 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             }
         }
     }
+    if (confirmClearCache) AlertDialog(onDismissRequest = { confirmClearCache = false },
+        title = { Text("Effacer le cache cartographique ?") },
+        text = { Text("Les cartes et zones hors ligne seront supprimées (${formatBytes(cacheBytes)}). Les téléchargements seront interrompus. Vos trajets et réglages sont conservés. Le chargement automatique reprendra à la fermeture des options.") },
+        confirmButton = { TextButton(onClick = { confirmClearCache = false; terrainModel.clearDownloadedCache() }) { Text("Effacer") } },
+        dismissButton = { TextButton(onClick = { confirmClearCache = false }) { Text("Annuler") } })
     if (optionsOpen) AlertDialog(onDismissRequest = { optionsOpen = false },
-        title = { Text("Affichage 3D") },
+        title = { Text("Options") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                TabRow(selectedTabIndex = optionsTab) {
+                    Tab(selected = optionsTab == 0, onClick = { optionsTab = 0 }, text = { Text("Affichage") })
+                    Tab(selected = optionsTab == 1, onClick = { optionsTab = 1 }, text = { Text("Hors ligne") })
+                }
+                if (optionsTab == 1) {
+                    Text("Rayon : ${radiusKm.toInt()} km · " + if (direction == OfflineSector.ALL_DIRECTIONS) "tour complet 360°" else "secteur de 90°")
+                    Slider(value = radiusKm, onValueChange = { radiusKm = it.roundToInt().toFloat() },
+                        valueRange = 2f..50f, steps = 47, enabled = !offlineRunning && !cacheClearing)
+                    DirectionPicker(direction, !offlineRunning && !cacheClearing) { direction = it }
+                    Text("Relief et calques activés autour de la position GPS. Garder l’application ouverte jusqu’à la fin. À 50 km, le téléchargement peut être long et volumineux.")
+                    Text(offlineStatus)
+                    Text("Téléchargé cette session : ${formatBytes(downloadedBytes)}")
+                    Text("Cache cartes et relief : ${formatBytes(cacheBytes)}")
+                    if (cacheClearing) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Arrêt des téléchargements et effacement…")
+                    }
+                    TextButton(enabled = !cacheClearing && (cacheBytes > 0 || offlineRunning),
+                        onClick = { confirmClearCache = true }) { Text("Effacer le cache") }
+                    Button(enabled = !offlineRunning && !cacheClearing && state.position != null, onClick = {
+                        state.position?.let { terrainModel.preload(it.latitude, it.longitude, radiusKm.toInt(), direction, layers) }
+                    }) { Text("Précharger / reprendre") }
+                    if (offlineRunning) TextButton(onClick = { terrainModel.cancelOffline() }) { Text("Interrompre") }
+                    if (state.position == null) Text("En attente d’une position GPS")
+                } else {
                 listOf("contours" to "Lignes de niveau", "water" to "Cours d’eau", "roads" to "Routes",
                     "paths" to "Chemins · VTT et à pied", "buildings" to "Bâtiments",
                     "parcels" to "Parcelles cadastrales · section / numéro").forEach { (key, label) ->
@@ -211,6 +280,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
                     Text("Diagnostic GPS et chargement 3D", Modifier.padding(start = 8.dp))
                 }
                 Text("Chemins et contours de bâtiments selon les données disponibles et le niveau de zoom.")
+                }
             }
         }, confirmButton = { TextButton(onClick = { optionsOpen = false }) { Text("Fermer") } })
 }
@@ -269,4 +339,64 @@ private fun CompassRose(pose: CameraPose, modifier: Modifier) {
             drawContext.canvas.nativeCanvas.drawText(label, end.x, end.y + paint.textSize * .35f, paint)
         }
     }
+}
+
+@Composable private fun DirectionPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
+    val labels = listOf("N", "NE", "E", "SE", "S", "SO", "O", "NO")
+    BoxWithConstraints(Modifier.fillMaxWidth().height(180.dp)) {
+        val radius = 64.dp
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2, size.height / 2)
+            val r = radius.toPx()
+            drawCircle(Color(0xFF376577), r, center, style = Stroke(1.dp.toPx()))
+            if (selected == OfflineSector.ALL_DIRECTIONS) drawCircle(Color(0x6069E3F5), r, center)
+            else drawArc(Color(0x6069E3F5), selected * 45f - 135f, 90f, true,
+                center - Offset(r, r), androidx.compose.ui.geometry.Size(2 * r, 2 * r))
+        }
+        TextButton(enabled = enabled, onClick = { onSelect(OfflineSector.ALL_DIRECTIONS) },
+            contentPadding = PaddingValues(0.dp), modifier = Modifier.align(Alignment.Center).size(48.dp)) {
+            Text("360°", color = if (selected == OfflineSector.ALL_DIRECTIONS) Color.White else Color(0xFF69E3F5),
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        }
+        labels.forEachIndexed { index, label ->
+            TextButton(enabled = enabled, onClick = { onSelect(index) }, modifier = Modifier
+                .align(Alignment.Center).offset(x = radius * sin(index * PI / 4).toFloat(),
+                    y = -radius * cos(index * PI / 4).toFloat()).size(48.dp)) {
+                Text(label, color = if (index == selected) Color.White else Color(0xFF69E3F5))
+            }
+        }
+    }
+}
+
+@Composable internal fun rememberAmbientLight(): Float {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var amount by remember { mutableFloatStateOf(0f) }
+    DisposableEffect(context, lifecycle) {
+        val manager = context.getSystemService(android.hardware.SensorManager::class.java)
+        val sensor = manager.getDefaultSensor(android.hardware.Sensor.TYPE_LIGHT)
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+            override fun onSensorChanged(event: android.hardware.SensorEvent) {
+                val target = ((event.values[0] - 1000f) / 9000f).coerceIn(0f, 1f)
+                amount += (target - amount) * .2f
+            }
+        }
+        fun start() { sensor?.let { manager.registerListener(listener, it, android.hardware.SensorManager.SENSOR_DELAY_NORMAL) } }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) start()
+            if (event == Lifecycle.Event.ON_PAUSE) manager.unregisterListener(listener)
+        }
+        lifecycle.addObserver(observer)
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) start()
+        onDispose { lifecycle.removeObserver(observer); manager.unregisterListener(listener) }
+    }
+    return amount
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 -> "%.2f Gio".format(bytes / (1024.0 * 1024 * 1024))
+    bytes >= 1024L * 1024 -> "%.1f Mio".format(bytes / (1024.0 * 1024))
+    bytes >= 1024 -> "%.1f Kio".format(bytes / 1024.0)
+    else -> "$bytes o"
 }
