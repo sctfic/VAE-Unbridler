@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
 import androidx.core.content.ContextCompat
 import android.Manifest
@@ -35,6 +36,7 @@ class RideService : Service() {
     private lateinit var locationEngine: RideLocationEngine
     private lateinit var settings: BikeSettingsStore
     private lateinit var wakeLock: PowerManager.WakeLock
+    private var shuttingDown = false
     private var notificationStarted = false
     private var dashboardOpenedForConnection = false
     private var locationStarted = false
@@ -50,10 +52,16 @@ class RideService : Service() {
             PowerManager.PARTIAL_WAKE_LOCK,
             "$packageName:ride",
         ).apply { setReferenceCounted(false) }
+        serviceScope.launch(Dispatchers.Main.immediate) {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                RideStateStore.expireGpsSpeed()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
         gattClient = BikeGattClient(
             context = this,
             onReady = {
-                if (associationPending) return@BikeGattClient
+                if (associationPending || shuttingDown) return@BikeGattClient
                 RideStateStore.setBluetoothReady(true)
                 acquireWakeLock()
                 serviceScope.launch { gattClient.setWheelCircumference(settings.circumferenceMm.first()) }
@@ -74,6 +82,12 @@ class RideService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            stopForDismissal()
+            return START_NOT_STICKY
+        }
+        if (intent?.getBooleanExtra(EXTRA_VISIBLE, false) == true) {
+            com.alban.ebike.companion.PresenceWatchdog.rearm(this)
+        } else if (com.alban.ebike.companion.PresenceWatchdog.blocked(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -90,10 +104,10 @@ class RideService : Service() {
             RideStateStore.setBluetoothReady(false)
             dashboardOpenedForConnection = false
             updateNotification("Association ESP32 en cours")
-            return START_STICKY
+            return START_NOT_STICKY
         }
         if (intent?.action == ACTION_RESUME) associationPending = false
-        if (associationPending) return START_STICKY
+        if (associationPending) return START_NOT_STICKY
         gattClient.start()
         if (allowLocation) {
             locationEngine.start()
@@ -117,10 +131,25 @@ class RideService : Service() {
             }
             else -> Unit
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
-    override fun onDestroy() {
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopForDismissal()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun stopForDismissal() {
+        com.alban.ebike.companion.PresenceWatchdog.dismiss(this)
+        shutdown()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun shutdown() {
+        if (shuttingDown) return
+        shuttingDown = true
+        notificationStarted = false
         BikeArrivalNotification.dismiss(this)
         gattClient.stop()
         locationEngine.stop()
@@ -128,7 +157,12 @@ class RideService : Service() {
         RideStateStore.setBluetoothStatus("Service arrêté")
         RideStateStore.setGpsStatus("GPS arrêté")
         releaseWakeLock()
+        RideStateStore.suspendTimers()
         serviceJob.cancel()
+    }
+
+    override fun onDestroy() {
+        shutdown()
         super.onDestroy()
     }
 

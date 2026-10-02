@@ -1,9 +1,9 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.7** — auteur **Lopez Alban**.
+Version Android **0.4.8** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
-Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.7](RELEASE_0.4.7.md).
+Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.8](RELEASE_0.4.8.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
@@ -121,3 +121,12 @@ idf.py -p COM4 flash monitor
 Remplacer `COM4` par le port réellement attribué à la carte. Si l'envoi ne démarre pas : maintenir **BOOT**, brancher l'USB ou appuyer sur **RESET**, relâcher **BOOT**, puis relancer la dernière commande.
 
 Firmware déjà construit : `firmware-esp32/build/ebike_firmware.bin`.
+
+### Fermeture et surveillance ESP32
+
+Retirer le cockpit des applications récentes arrête le suivi GPS, la connexion et les relances BLE, le verrou CPU et la notification du trajet. Le service ne demande plus de redémarrage automatique. Le bouton Arrêter applique le même comportement.
+La surveillance de présence de l’appareil associé reste confiée à Android, sans boucle GPS/BLE propre à l’application. Après une fermeture, les rappels de présence sont ignorés jusqu’à une disparition puis une nouvelle apparition de l’ESP, ou une ouverture manuelle. Le lancement automatique dépend de l’association et des autorisations Android ; sur écran verrouillé, une notification permet d’ouvrir le cockpit.
+
+Un seul compteur avance : mouvement si la vitesse valide dépasse le seuil, repos sinon (y compris sans signal). Le temps de mouvement reste visible mais atténué au repos ; le repos est caché et remis à zéro à la reprise. Les pauses sont encadrées en magenta sur le profil et la 3D. Sans position GPS, le repère est placé à la dernière position connue ; aucune position n’est inventée.
+
+Les APK du dossier releases sont limités à la dernière version signée, préparée avec `tools/package-apk.ps1`. Les anciennes versions restent accessibles dans l’historique Git.

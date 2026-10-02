@@ -14,6 +14,7 @@ object DashboardLauncher {
 
     @Synchronized
     fun openIfUnlocked(context: Context): Boolean {
+        if (PresenceWatchdog.blocked(context)) return false
         if (!context.getSystemService(PowerManager::class.java).isInteractive ||
             context.getSystemService(KeyguardManager::class.java).isKeyguardLocked) {
             BikeArrivalNotification.show(context)

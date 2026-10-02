@@ -36,6 +36,20 @@ $upload = ($release.upload_url -split '\{')[0] + '?name=' + [uri]::EscapeDataStr
 $asset = Invoke-RestMethod $upload -Method Post -Headers $headers -ContentType 'application/vnd.android.package-archive' -InFile $apkFile.FullName
 if ($asset.state -ne 'uploaded' -or $asset.size -ne $apkFile.Length) { throw 'APK upload verification failed; release remains draft' }
 $release = Invoke-RestMethod "$api/$($release.id)" -Method Patch -Headers $headers -ContentType 'application/json' -Body '{"draft":false}'
+# Retain only the newly published APK; keep old tags and release notes.
+$page = 1
+$oldAssets = @()
+do {
+    $batch = @(Invoke-RestMethod "$api`?per_page=100&page=$page" -Headers $headers)
+    foreach ($entry in $batch) {
+        if ($entry.id -eq $release.id -or $entry.draft) { continue }
+        $oldAssets += @($entry.assets | Where-Object { $_.name -match '^E-BikeCockpit-.*\.apk$' })
+    }
+    $page++
+} while ($batch.Count -eq 100)
+foreach ($oldAsset in $oldAssets) {
+    Invoke-RestMethod "$api/assets/$($oldAsset.id)" -Method Delete -Headers $headers | Out-Null
+}
 Write-Output $release.html_url
 Write-Output $asset.browser_download_url
 $headers.Clear(); $credential.Clear(); $lines = $null

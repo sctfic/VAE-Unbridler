@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.alban.ebike.companion.PresenceWatchdog.rearm(this)
         settings = BikeSettingsStore(this)
         enterDashboardMode()
         associationLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -87,6 +88,11 @@ class MainActivity : ComponentActivity() {
                 },
             )
         }
+    }
+
+    override fun onDestroy() {
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        super.onDestroy()
     }
 
     override fun onResume() {

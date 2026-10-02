@@ -41,7 +41,7 @@ object RideStateStore {
         resetGpsSpeed()
         RideTrackJournal.startNewRide()
         _state.update { it.copy(distanceM = 0.0, track = emptyList(), profile = emptyList(),
-            position = null, altitudeM = null, movingTimeMs = 0, restTimeMs = 0, resting = false, elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
+            position = null, altitudeM = null, movingTimeMs = 0, restTimeMs = 0, resting = true, pauses = emptyList(), elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
         GpsDebugLog.record("RESET trajet confirmé")
     }
 
@@ -52,8 +52,25 @@ object RideStateStore {
                 gpsStatus = "Signal GPS en attente") }
         }
         val elapsed = movingTimer.update(nowMs, _state.value.displayedSpeedKmh, movingThresholdKmh)
-        _state.update { it.copy(movingTimeMs = elapsed, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting) }
+        _state.update { current ->
+            val anchor = current.position
+            val pauses = current.pauses.toMutableList()
+            if (anchor != null) {
+                val boundary = anchor.copy(timeMs = System.currentTimeMillis(), movingTimeMs = elapsed,
+                    restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting)
+                if (movingTimer.resting && (pauses.isEmpty() || pauses.last().end != null)) {
+                    pauses.add(com.alban.ebike.model.RidePause(boundary))
+                } else if (!movingTimer.resting && pauses.lastOrNull()?.end == null && pauses.isNotEmpty()) {
+                    pauses[pauses.lastIndex] = pauses.last().copy(end = boundary)
+                }
+            }
+            current.copy(movingTimeMs = elapsed, restTimeMs = movingTimer.restMilliseconds,
+                resting = movingTimer.resting, pauses = pauses)
+        }
     }
+
+    @Synchronized
+    fun suspendTimers() { movingTimer.suspend() }
 
     @Synchronized
     fun resetGpsSpeed() {

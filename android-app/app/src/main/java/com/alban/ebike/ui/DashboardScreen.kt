@@ -307,12 +307,15 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text(if (readout.historical) "TEMPS AU POINT" else "TEMPS EN MOUVEMENT",
                 color = Muted, fontSize = 8.sp, lineHeight = 10.sp, style = compactText)
             Text(readout.movingTimeMs?.let(::formatRideDuration) ?: "—",
-                color = White, fontSize = 28.sp, lineHeight = 29.sp, style = compactText,
+                color = if (readout.resting) Muted else White, fontSize = 28.sp, lineHeight = 29.sp, style = compactText,
                 fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
             Box(Modifier.height(24.dp)) {
-                if (readout.resting && readout.restTimeMs != null) Text(
-                    "REPOS ${formatRideDuration(readout.restTimeMs)}", color = Muted,
-                    fontSize = 16.sp, lineHeight = 20.sp, style = compactText, maxLines = 1)
+                if (readout.resting && readout.restTimeMs != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("REPOS", color = Color.Magenta, fontSize = 8.sp, style = compactText)
+                    Spacer(Modifier.width(4.dp))
+                    Text(formatRideDuration(readout.restTimeMs), color = Color.Magenta,
+                        fontSize = 16.sp, lineHeight = 20.sp, style = compactText, maxLines = 1)
+                }
             }
         }
         if (!readout.historical && state.bluetoothReady) {
@@ -401,6 +404,13 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         }
         extremum(maxPoint, "MAX", true)
         if (minPoint !== maxPoint) extremum(minPoint, "MIN", false)
+        state.pauses.forEach { pause ->
+            listOf(pause.start to true, pause.end to false).forEach { (point, start) ->
+                if (point != null && point.altitudeValid && point.distanceM in (state.distanceM - windowM)..state.distanceM) {
+                    drawPauseBracket(screen(com.alban.ebike.model.AltitudePoint(point.distanceM, point.altitudeM)), start)
+                }
+            }
+        }
         selected?.takeIf { it.distanceM in (state.distanceM - windowM)..state.distanceM }?.let {
             drawSelectionMarker(screen(com.alban.ebike.model.AltitudePoint(it.distanceM, it.altitudeM)))
         }

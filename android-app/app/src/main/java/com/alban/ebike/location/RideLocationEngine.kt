@@ -37,7 +37,6 @@ class RideLocationEngine(context: Context) {
     private val staleCheck = object : Runnable {
         override fun run() {
             if (!started) return
-            RideStateStore.expireGpsSpeed()
             val now = SystemClock.elapsedRealtime()
             if (now - lastHeartbeatMs >= 5000) {
                 lastHeartbeatMs = now
@@ -52,6 +51,7 @@ class RideLocationEngine(context: Context) {
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
+            if (!started) return
             lastFixMs = SystemClock.elapsedRealtime()
             result.locations.forEach(RideStateStore::ingestLocation)
         }
@@ -97,9 +97,8 @@ class RideLocationEngine(context: Context) {
 
     fun stop() {
         GpsDebugLog.record("STOP location service")
-        if (!started) return
-        started = false
         handler.removeCallbacks(staleCheck)
+        started = false
         RideStateStore.resetGpsSpeed()
         client.removeLocationUpdates(callback)
     }

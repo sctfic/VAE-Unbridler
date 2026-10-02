@@ -103,6 +103,20 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             local.copy(height = ((grid.sampleSmooth(local.east, local.north) ?: base.toDouble()) - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 3)
         } else null)
     }
+    LaunchedEffect(state.pauses, terrain, selectedTrack) {
+        val grid = terrain
+        val minimum = selectedTrack.firstOrNull()?.distanceM ?: 0.0
+        val maximum = selectedTrack.lastOrNull()?.distanceM ?: 0.0
+        val base = grid?.heights?.filter { it.isFinite() }?.minOrNull() ?: 0f
+        view.setPausePoints(if (grid == null) emptyList() else state.pauses.flatMap { pause ->
+            listOf(pause.start to true, pause.end to false).mapNotNull { (point, start) ->
+                if (point == null || point.distanceM !in minimum..maximum) null else {
+                    val local = GeoFrame.local(point.latitude, point.longitude, grid.originLat, grid.originLon)
+                    local.copy(height = ((grid.sampleSmooth(local.east, local.north) ?: base.toDouble()) - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 3) to start
+                }
+            }
+        })
+    }
     val light = rememberAmbientLight()
     SideEffect { view.setSunlight(light) }
     LaunchedEffect(parcels, terrain) {
@@ -115,6 +129,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     LaunchedEffect(terrain) { terrain?.let { report(it.status) } }
     var heading by remember { mutableDoubleStateOf(0.0) }
     var cameraPose by remember { mutableStateOf(CameraPose()) }
+    var pauseMarkers by remember { mutableStateOf<List<Pair<ScreenPoint, Boolean>>>(emptyList()) }
     var selectionMarker by remember { mutableStateOf<ScreenPoint?>(null) }
     var active by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     DisposableEffect(lifecycle, view) {
@@ -152,7 +167,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     }
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        while (isActive) { cameraPose = view.cameraPose(); selectionMarker = view.selectedMarker(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(33) }
+        while (isActive) { cameraPose = view.cameraPose(); selectionMarker = view.selectedMarker(); pauseMarkers = view.pauseMarkers(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(33) }
     }
     LaunchedEffect(active, mapArea, terrain, detail) {
         if (!active) return@LaunchedEffect
@@ -210,6 +225,12 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         CompassRose(cameraPose, Modifier.align(Alignment.TopEnd)
             .padding(top = 2.dp).offset(x = 4.dp)
             .size(116.dp, if (landscape) 96.dp else 110.dp))
+        Canvas(Modifier.fillMaxSize()) {
+            pauseMarkers.forEach { (point, start) ->
+                drawPauseBracket(Offset(((point.x + 1) * size.width / 2).toFloat(),
+                    ((1 - point.y) * size.height / 2).toFloat()), start)
+            }
+        }
         if (selectedPoint != null) Canvas(Modifier.fillMaxSize()) {
             selectionMarker?.let { point ->
                 drawSelectionMarker(Offset(((point.x + 1) * size.width / 2).toFloat(),

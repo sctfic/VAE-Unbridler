@@ -1,24 +1,22 @@
 package com.alban.ebike.data
 
-/** Monotonic time, no interpolation across missing samples or stops. */
+/** Exactly one timer owns every elapsed interval; only a valid above-threshold speed means movement. */
 class MovingTimer {
     var milliseconds = 0L; private set
     var restMilliseconds = 0L; private set
-    var resting = false; private set
+    var resting = true; private set
     private var previousMs: Long? = null
-    private var above = false
-    fun reset() { milliseconds = 0; restMilliseconds = 0; resting = false; previousMs = null; above = false }
+    fun reset() { milliseconds = 0; restMilliseconds = 0; resting = true; previousMs = null }
+    fun suspend() { previousMs = null }
     fun update(now: Long, speed: Float?, threshold: Float): Long {
         val moving = speed != null && speed.isFinite() && speed > threshold
-        val stopped = speed != null && speed.isFinite() && speed >= 0f && speed <= threshold
         previousMs?.let {
-            if (now - it in 1L..4000L) {
-                if (above && moving) milliseconds += now - it
-                if (resting && stopped) restMilliseconds += now - it
-            }
+            val elapsed = (now - it).coerceAtLeast(0)
+            if (resting) restMilliseconds += elapsed else milliseconds += elapsed
         }
         if (moving) restMilliseconds = 0
-        previousMs = now; above = moving; resting = stopped
+        previousMs = now
+        resting = !moving
         return milliseconds
     }
 }

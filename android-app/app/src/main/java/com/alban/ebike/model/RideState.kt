@@ -20,6 +20,8 @@ data class TrackPoint(
     val speedSource: String? = null,
 )
 
+data class RidePause(val start: TrackPoint, val end: TrackPoint? = null)
+
 data class RideUiState(
     val speedMode: Boolean = false,
     val modeSupported: Boolean = false,
@@ -31,7 +33,7 @@ data class RideUiState(
     val gpsSpeedApproximate: Boolean = false,
     val movingTimeMs: Long = 0L,
     val restTimeMs: Long = 0L,
-    val resting: Boolean = false,
+    val resting: Boolean = true,
     val elevationGainM: Float = 0f,
     val wheelSpeedKmh: Float = 0f,
     val motorSpeedKmh: Float = 0f,
@@ -41,6 +43,7 @@ data class RideUiState(
     val distanceM: Double = 0.0,
     val profile: List<AltitudePoint> = emptyList(),
     val track: List<TrackPoint> = emptyList(),
+    val pauses: List<RidePause> = emptyList(),
     val position: TrackPoint? = null,
     val simulatedOutput: Boolean = false,
     val lastGpsAccuracyM: Float? = null,
