@@ -61,6 +61,8 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
         val now = SystemClock.uptimeMillis()
         queueEvent { sceneRenderer.orbit.movement(distanceM, now); sceneRenderer.grade = grade }
     }
+    fun selectPivot(point: WorldPoint?) { queueEvent { sceneRenderer.pivot = point } }
+    fun setSunlight(amount: Float) { queueEvent { sceneRenderer.sunlight = amount } }
     fun cameraPose() = sceneRenderer.cameraPose()
     fun parcelLabels() = sceneRenderer.visibleLabels
     private var running = false
@@ -98,6 +100,8 @@ private class SceneRenderer : GLSurfaceView.Renderer {
     var onFrameReady: (Long) -> Unit = {}
     val orbit = SceneOrbit()
     var grade = 0f
+    var pivot: WorldPoint? = null
+    var sunlight = 0f
     @Volatile var pending: SceneMesh? = null
     private var mesh: SceneMesh? = null
     private var buffers = emptyList<FloatBuffer>()
@@ -178,7 +182,8 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             lighting = ByteBuffer.allocateDirect(light.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(light); position(0) }
             }
         }
-        val scene = mesh ?: return
+        val original = mesh ?: return
+        val scene = pivot?.let { original.copy(center = it) } ?: original
         if (program == 0) return
         heading = orbit.advance(scene.heading, SystemClock.uptimeMillis(), grade)
         visiblePose = CameraPose(heading, orbit.tilt)
@@ -186,6 +191,9 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             fit = TrackCamera.fit(framePoints, heading, aspect, orbit.tilt)
             fittedHeading = heading; fittedAspect = aspect; fittedTilt = orbit.tilt
         }
+        if (pivot != null) fit = TrackCamera.fit(scene.frame.map {
+            WorldPoint(it.east - scene.center.east, it.north - scene.center.north, it.height - scene.center.height)
+        }, heading, aspect, orbit.tilt)
         // Expand immediately to keep every point inside; ease in when the route becomes smaller.
         distance = if (fit > distance) fit else distance + (fit - distance) * .055
         visibleLabels = scene.parcelLabels.mapNotNull { label ->
@@ -213,11 +221,16 @@ private class SceneRenderer : GLSurfaceView.Renderer {
                 glEnableVertexAttribArray(colorHandle)
                 glVertexAttribPointer(colorHandle, 3, GL_FLOAT, false, 0, buffers[5])
             } else { glDisableVertexAttribArray(colorHandle); glVertexAttrib3f(colorHandle, 1f, 1f, 1f) }
-            glUniform4fv(uniforms.getValue("u_color"), 1, color, 0)
+            val adjusted = color.copyOf()
+            if (primitive != GL_TRIANGLES) {
+                for (i in 0..2) adjusted[i] = (adjusted[i] * (1 + sunlight * .4f)).coerceAtMost(1f)
+                adjusted[3] = (adjusted[3] + sunlight * .3f).coerceAtMost(1f)
+            }
+            glUniform4fv(uniforms.getValue("u_color"), 1, adjusted, 0)
             glUniform1f(uniforms.getValue("u_points"), if (primitive == GL_POINTS) 1f else 0f)
             glUniform1f(uniforms.getValue("u_size"), pointSize)
             glUniform1f(uniforms.getValue("u_lift"), lift)
-            glLineWidth(width.coerceIn(1f, maxLineWidth.coerceAtLeast(1f)))
+            glLineWidth((width * (1 + sunlight)).coerceIn(1f, maxLineWidth.coerceAtLeast(1f)))
             glVertexAttribPointer(positionHandle, 3, GL_FLOAT, false, 0, buffer)
             glDrawArrays(primitive, 0, buffer.capacity() / 3)
         }

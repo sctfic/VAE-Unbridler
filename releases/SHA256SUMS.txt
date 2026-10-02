@@ -1,0 +1,2 @@
+bbc45cd2ab83c28464fce5627efa849b4b030a323da39ced2b83d76fe26ea185  E-BikeCockpit-0.4.0-debug.apk
+1ed22d8d6dc4b93a3ad0dbcdc213c7eb4072fbfe60d7fa65e81706269572202f  E-BikeCockpit-0.4.0.apk

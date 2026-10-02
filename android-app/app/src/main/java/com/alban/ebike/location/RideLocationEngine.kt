@@ -26,7 +26,11 @@ class RideLocationEngine(context: Context) {
     private var lastFixMs = 0L
     private var lastHeartbeatMs = 0L
     private val locationManager = appContext.getSystemService(LocationManager::class.java)
-    init { GpsDebugLog.initialize(appContext) }
+    init {
+        GpsDebugLog.initialize(appContext)
+        RideStateStore.movingThresholdKmh = appContext.getSharedPreferences("ride-options", Context.MODE_PRIVATE)
+            .getFloat("moving-threshold", 4f).coerceIn(0f, 20f)
+    }
     private val handler = Handler(Looper.getMainLooper())
     private val staleCheck = object : Runnable {
         override fun run() {

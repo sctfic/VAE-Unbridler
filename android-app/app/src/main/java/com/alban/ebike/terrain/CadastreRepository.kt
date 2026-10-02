@@ -10,12 +10,14 @@ import java.net.URL
 
 /** IGN PCI Express WFS. Fixed small zones; labels are cadastral references, never owner names. */
 class CadastreRepository(context: Context) {
+    @Volatile var pinWrites = false
     private val cache = File(context.filesDir, "cadastre-pci-v1")
-    suspend fun load(key: ElevationTileKey, progress: (String) -> Unit): List<Parcel> = withContext(Dispatchers.IO) {
+    suspend fun load(key: ElevationTileKey, refreshPartial: Boolean = false, progress: (String) -> Unit): List<Parcel> = withContext(Dispatchers.IO) {
         val file = File(cache, "${key.level}-${key.x}-${key.y}.json")
         if (file.exists()) runCatching {
             check(file.length() <= 8 * 1024 * 1024)
             val json = JSONObject(file.readText())
+            check(!refreshPartial || !json.optBoolean("partial"))
             progress(if (json.optBoolean("partial")) "Cadastre · cache partiel (limite de densité)" else "Cadastre · cache disque")
             parse(json.getJSONArray("features"))
         }.getOrNull()?.let { file.setLastModified(System.currentTimeMillis()); return@withContext it }
@@ -57,9 +59,11 @@ class CadastreRepository(context: Context) {
             check(text.toByteArray().size <= 8 * 1024 * 1024)
             val part = File.createTempFile("parcel-", ".part", cache)
             try { part.writeText(text); check(part.renameTo(file)) } finally { part.delete() }
+            if (pinWrites) File(cache, file.name + ".pin").writeText("")
             val files = cache.listFiles { f -> f.extension == "json" }?.sortedBy { it.lastModified() }.orEmpty()
             var total = files.sumOf { it.length() }
-            for (old in files) { if (total <= 64L * 1024 * 1024) break; val n = old.length(); if (old.delete()) total -= n }
+            for (old in files) { if (total <= 64L * 1024 * 1024) break
+                    if (File(cache, old.name + ".pin").exists()) continue; val n = old.length(); if (old.delete()) total -= n }
         }
         if (!complete) progress("Cadastre · partiel, limite 2 000 parcelles par zone")
         result

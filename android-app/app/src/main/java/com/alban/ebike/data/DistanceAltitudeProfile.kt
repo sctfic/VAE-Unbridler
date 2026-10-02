@@ -32,24 +32,26 @@ class DistanceAltitudeProfile {
             return if (first < 0) emptyList() else points.drop((first - 1).coerceAtLeast(0))
         }
 
-        /** Secant of the actual profile over its last 20 m; never across a GPS/altitude gap. */
+        /** Regression of spatially resampled heights over 20 m, never across gaps. */
         fun terminalGrade(points: List<AltitudePoint>): Float? {
             val end = points.lastOrNull() ?: return null
             if (end.segmentStart) return null
-            var reference = end
-            val target = end.distanceM - 20.0
-            for (i in points.size - 2 downTo 0) {
-                val p = points[i]
-                if (p.distanceM <= target && reference.distanceM > p.distanceM) {
-                    val fraction = (target - p.distanceM) / (reference.distanceM - p.distanceM)
-                    val height = p.altitudeM + fraction * (reference.altitudeM - p.altitudeM)
-                    return ((end.altitudeM - height) * 5).toFloat()
-                }
-                reference = p
-                if (p.segmentStart) break
+            val segment = points.takeLastWhile { !it.segmentStart }.let { tail ->
+                points.getOrNull(points.size - tail.size - 1)?.let { listOf(it) + tail } ?: tail
             }
-            val span = end.distanceM - reference.distanceM
-            return if (span >= 12) ((end.altitudeM - reference.altitudeM) / span * 100).toFloat() else null
+            val start = maxOf(end.distanceM - 20.0, segment.first().distanceM)
+            val span = end.distanceM - start
+            if (span < 12) return null
+            val samples = (0..10).map { i ->
+                val x = start + span * i / 10
+                val right = segment.indexOfFirst { it.distanceM >= x }.coerceAtLeast(0)
+                val b = segment[right]; val a = segment[(right - 1).coerceAtLeast(0)]
+                val fraction = if (b.distanceM > a.distanceM) (x - a.distanceM) / (b.distanceM - a.distanceM) else 0.0
+                x to a.altitudeM + fraction * (b.altitudeM - a.altitudeM)
+            }
+            val meanX = samples.map { it.first }.average(); val meanY = samples.map { it.second }.average()
+            val variance = samples.sumOf { (it.first - meanX) * (it.first - meanX) }
+            return (100 * samples.sumOf { (it.first - meanX) * (it.second - meanY) } / variance).toFloat()
         }
     }
 }

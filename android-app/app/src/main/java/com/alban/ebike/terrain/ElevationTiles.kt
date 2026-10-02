@@ -68,6 +68,7 @@ object ElevationTiles {
 
 /** Whole tiles are atomic, independently reusable and persisted even if a UI waiter goes away. */
 class ElevationTileStore(private val directory: File) {
+    @Volatile var pinWrites = false
     private val memory = object : LinkedHashMap<ElevationTileKey, FloatArray>(128, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ElevationTileKey, FloatArray>?) = size > 128
     }
@@ -88,16 +89,16 @@ class ElevationTileStore(private val directory: File) {
         }.getOrNull()
     }
     @Synchronized fun cachedFineWithin(region: ElevationRegion): Map<ElevationTileKey, FloatArray> {
-        val pattern = Regex("ign-v1-0-(-?\\d+)-(-?\\d+)\\.bin")
+        val pattern = Regex("ign-v1-([01])-(-?\\d+)-(-?\\d+)\\.bin")
         val keys = directory.listFiles { f -> f.extension == "bin" }.orEmpty().mapNotNull { file ->
             pattern.matchEntire(file.name)?.let { match ->
-                ElevationTileKey(0, match.groupValues[1].toInt(), match.groupValues[2].toInt())
+                ElevationTileKey(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt())
             }
-        }.plus(memory.keys.filter { it.level == 0 }).distinct().filter { key ->
+        }.plus(memory.keys.filter { it.level <= 1 }).distinct().filter { key ->
             abs((key.x + .5) * key.side - region.east) <= region.half + key.side / 2 &&
                 abs((key.y + .5) * key.side - region.north) <= region.half + key.side / 2
         }.sortedBy { hypot((it.x + .5) * it.side - region.east, (it.y + .5) * it.side - region.north) }
-        return keys.take(256).mapNotNull { key -> read(key)?.let { key to it } }.toMap()
+        return keys.take(512).mapNotNull { key -> read(key)?.let { key to it } }.toMap()
     }
     @Synchronized fun write(key: ElevationTileKey, heights: FloatArray) {
         require(heights.size == 1089)
@@ -108,12 +109,14 @@ class ElevationTileStore(private val directory: File) {
                 output.writeInt(0x45425431); output.writeInt(1089); heights.forEach(output::writeFloat)
             }
             check(part.renameTo(File(directory, key.fileName)))
+            if (pinWrites) File(directory, key.fileName + ".pin").writeText("")
         } finally { part.delete() }
         if (heights.any { it.isFinite() }) memory[key] = heights
         val files = directory.listFiles { f -> f.extension == "bin" }?.sortedBy { it.lastModified() }.orEmpty()
         var total = files.sumOf { it.length() }
         for (file in files) {
             if (total <= 64L * 1024 * 1024) break
+            if (File(directory, file.name + ".pin").exists()) continue
             val length = file.length(); if (file.delete()) total -= length
         }
     }

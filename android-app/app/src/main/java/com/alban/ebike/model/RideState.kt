@@ -22,6 +22,9 @@ data class RideUiState(
     val gpsStatus: String = "GPS en attente",
     val gpsSpeedKmh: Float = 0f,
     val gpsSpeedValid: Boolean = false,
+    val gpsSpeedApproximate: Boolean = false,
+    val movingTimeMs: Long = 0L,
+    val elevationGainM: Float = 0f,
     val wheelSpeedKmh: Float = 0f,
     val motorSpeedKmh: Float = 0f,
     val altitudeM: Float? = null,
@@ -40,7 +43,7 @@ data class RideUiState(
         else -> null
     }
     val displayedSpeedSource: String get() = when {
-        gpsSpeedValid -> "GPS"
+        gpsSpeedValid -> if (gpsSpeedApproximate) "GPS ≈" else "GPS"
         bluetoothReady -> "ROUE"
         else -> "GPS / ROUE —"
     }
