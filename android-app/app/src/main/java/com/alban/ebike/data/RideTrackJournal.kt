@@ -24,8 +24,8 @@ object RideTrackJournal {
                 }
                 runCatching {
                     check(directory.isDirectory || directory.mkdirs())
-                    if (!file.exists()) file.appendText("time_ms,latitude,longitude,gps_altitude_m,distance_m,segment_start,speed_kmh,grade_percent,altitude_valid\n")
-                    file.appendText("${point.timeMs},${point.latitude},${point.longitude},${point.altitudeM},${point.distanceM},${point.segmentStart},${point.speedKmh ?: ""},${point.gradePercent ?: ""},${point.altitudeValid}\n")
+                    if (!file.exists()) file.appendText("time_ms,latitude,longitude,gps_altitude_m,distance_m,segment_start,speed_kmh,grade_percent,altitude_valid,moving_time_ms,elevation_gain_m,speed_approximate,speed_source\n")
+                    file.appendText("${point.timeMs},${point.latitude},${point.longitude},${point.altitudeM},${point.distanceM},${point.segmentStart},${point.speedKmh ?: ""},${point.gradePercent ?: ""},${point.altitudeValid},${point.movingTimeMs ?: ""},${point.elevationGainM ?: ""},${point.speedApproximate},${point.speedSource ?: ""}\n")
                 }.onFailure { Log.e("EBikeTrack", "Unable to persist ride point", it) }
             }
         }

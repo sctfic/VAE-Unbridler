@@ -12,6 +12,10 @@ data class TrackPoint(
     val speedKmh: Float? = null,
     val gradePercent: Float? = null,
     val altitudeValid: Boolean = true,
+    val movingTimeMs: Long? = null,
+    val elevationGainM: Float? = null,
+    val speedApproximate: Boolean = false,
+    val speedSource: String? = null,
 )
 
 data class RideUiState(

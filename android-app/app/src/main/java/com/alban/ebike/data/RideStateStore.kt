@@ -47,14 +47,12 @@ object RideStateStore {
 
     @Synchronized
     fun expireGpsSpeed(nowMs: Long = SystemClock.elapsedRealtime()) {
-        val elapsed = movingTimer.update(nowMs, _state.value.displayedSpeedKmh.takeIf {
-            _state.value.bluetoothReady || nowMs - lastReliableSpeedMs <= 4000
-        }, movingThresholdKmh)
-        _state.update { it.copy(movingTimeMs = elapsed) }
         if (nowMs - lastReliableSpeedMs > 4000 && _state.value.gpsSpeedValid) {
             _state.update { it.copy(gpsSpeedKmh = 0f, gpsSpeedValid = false,
                 gpsStatus = "Signal GPS en attente") }
         }
+        val elapsed = movingTimer.update(nowMs, _state.value.displayedSpeedKmh, movingThresholdKmh)
+        _state.update { it.copy(movingTimeMs = elapsed) }
     }
 
     @Synchronized
@@ -126,6 +124,7 @@ object RideStateStore {
             "trace=${decision.reason} append=${decision.append} segmentStart=${decision.segmentStart} stepM=${decision.distanceM}")
         if (motion.reliable) lastReliableSpeedMs = fixTimeMs
         _state.update { it.copy(gpsSpeedKmh = motion.speedKmh, gpsSpeedValid = motion.reliable, gpsSpeedApproximate = approximate) }
+        expireGpsSpeed(nowMs)
         if (!decision.accepted) return
         val time = location.time.takeIf { it > 0 } ?: System.currentTimeMillis()
         distanceM += decision.distanceM
@@ -145,8 +144,12 @@ object RideStateStore {
         if (decision.append || !hasAltitude) elevationGain.update(altitude.takeIf { hasAltitude }, decision.segmentStart)
         val inclination = profile.grade(gradePointCount)
         GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude append=${decision.append}")
+        val snapshot = _state.value
         val point = TrackPoint(location.latitude, location.longitude, altitude ?: 0f, time,
-            distanceM, decision.segmentStart, motion.speedKmh.takeIf { motion.reliable }, inclination, hasAltitude)
+            distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, inclination, hasAltitude,
+            movingTimeMs = movingTimer.milliseconds, elevationGainM = elevationGain.metres,
+            speedApproximate = snapshot.gpsSpeedValid && snapshot.gpsSpeedApproximate,
+            speedSource = snapshot.displayedSpeedSource)
         if (decision.append) {
             trackPoints = track.add(point)
             RideTrackJournal.record(point)
