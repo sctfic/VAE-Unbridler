@@ -1,5 +1,7 @@
 package com.alban.ebike.ui
 
+import androidx.compose.ui.graphics.drawscope.clipRect
+
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.Canvas
@@ -103,19 +105,19 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             local.copy(height = ((grid.sampleSmooth(local.east, local.north) ?: base.toDouble()) - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 3)
         } else null)
     }
-    LaunchedEffect(state.pauses, terrain, selectedTrack) {
+    LaunchedEffect(state.pauses, state.position, terrain, selectedTrack) {
         val grid = terrain
         val minimum = selectedTrack.firstOrNull()?.distanceM ?: 0.0
         val maximum = selectedTrack.lastOrNull()?.distanceM ?: 0.0
         val base = grid?.heights?.filter { it.isFinite() }?.minOrNull() ?: 0f
-        view.setPausePoints(if (grid == null) emptyList() else state.pauses.flatMap { pause ->
-            listOf(pause.start to true, pause.end to false).mapNotNull { (point, start) ->
-                if (point == null || point.distanceM !in minimum..maximum) null else {
-                    val local = GeoFrame.local(point.latitude, point.longitude, grid.originLat, grid.originLon)
-                    local.copy(height = ((grid.sampleSmooth(local.east, local.north) ?: base.toDouble()) - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 3) to start
-                }
-            }
-        })
+        fun project(point: com.alban.ebike.model.TrackPoint): WorldPoint {
+            val local = GeoFrame.local(point.latitude, point.longitude, grid!!.originLat, grid.originLon)
+            return local.copy(height = ((grid.sampleSmooth(local.east, local.north) ?: base.toDouble()) - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 3)
+        }
+        view.setPausePoints(if (grid == null) emptyList() else
+            com.alban.ebike.model.pauseSegments(state.pauses, state.track, state.position)
+                .filter { (a, b) -> a.distanceM >= minimum && b.distanceM <= maximum }
+                .map { (a, b) -> project(a) to project(b) })
     }
     val light = rememberAmbientLight()
     SideEffect { view.setSunlight(light) }
@@ -129,7 +131,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     LaunchedEffect(terrain) { terrain?.let { report(it.status) } }
     var heading by remember { mutableDoubleStateOf(0.0) }
     var cameraPose by remember { mutableStateOf(CameraPose()) }
-    var pauseMarkers by remember { mutableStateOf<List<Pair<ScreenPoint, Boolean>>>(emptyList()) }
+    var pauseMarkers by remember { mutableStateOf<List<Pair<ScreenPoint, ScreenPoint>>>(emptyList()) }
     var selectionMarker by remember { mutableStateOf<ScreenPoint?>(null) }
     var active by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     DisposableEffect(lifecycle, view) {
@@ -226,9 +228,10 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             .padding(top = 2.dp).offset(x = 4.dp)
             .size(116.dp, if (landscape) 96.dp else 110.dp))
         Canvas(Modifier.fillMaxSize()) {
-            pauseMarkers.forEach { (point, start) ->
-                drawPauseBracket(Offset(((point.x + 1) * size.width / 2).toFloat(),
-                    ((1 - point.y) * size.height / 2).toFloat()), start)
+            fun screen(point: ScreenPoint) = Offset(((point.x + 1) * size.width / 2).toFloat(),
+                ((1 - point.y) * size.height / 2).toFloat())
+            clipRect {
+                pauseMarkers.forEach { (a, b) -> drawPauseBorder(screen(a), screen(b), (3f * (1 + light)).dp.toPx()) }
             }
         }
         if (selectedPoint != null) Canvas(Modifier.fillMaxSize()) {

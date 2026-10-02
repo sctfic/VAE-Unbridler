@@ -311,9 +311,9 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                 fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
             Box(Modifier.height(24.dp)) {
                 if (readout.resting && readout.restTimeMs != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("REPOS", color = Color.Magenta, fontSize = 8.sp, style = compactText)
+                    Text("REPOS", color = Muted, fontSize = 8.sp, style = compactText)
                     Spacer(Modifier.width(4.dp))
-                    Text(formatRideDuration(readout.restTimeMs), color = Color.Magenta,
+                    Text(formatRideDuration(readout.restTimeMs), color = Muted,
                         fontSize = 16.sp, lineHeight = 20.sp, style = compactText, maxLines = 1)
                 }
             }
@@ -404,10 +404,13 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         }
         extremum(maxPoint, "MAX", true)
         if (minPoint !== maxPoint) extremum(minPoint, "MIN", false)
-        state.pauses.forEach { pause ->
-            listOf(pause.start to true, pause.end to false).forEach { (point, start) ->
-                if (point != null && point.altitudeValid && point.distanceM in (state.distanceM - windowM)..state.distanceM) {
-                    drawPauseBracket(screen(com.alban.ebike.model.AltitudePoint(point.distanceM, point.altitudeM)), start)
+        clipRect {
+            com.alban.ebike.model.pauseSegments(state.pauses, state.track, state.position).forEach { (a, b) ->
+                val minimum = state.distanceM - windowM
+                if (a.altitudeValid && b.altitudeValid && b.distanceM >= minimum && a.distanceM <= state.distanceM) {
+                    drawPauseBorder(screen(com.alban.ebike.model.AltitudePoint(a.distanceM, a.altitudeM)),
+                        screen(com.alban.ebike.model.AltitudePoint(b.distanceM, b.altitudeM)),
+                        (1.8f + sunlight * 1.8f).dp.toPx())
                 }
             }
         }
