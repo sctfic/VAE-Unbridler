@@ -48,6 +48,13 @@ private val White = Color(0xFFE9F7FF)
 fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () -> Unit,
     onToggleMode: () -> Unit, onSaveCircumference: (Int) -> Unit, onResetRide: () -> Unit = {}) {
     var selectedPoint by remember { mutableStateOf<com.alban.ebike.model.TrackPoint?>(null) }
+    var profileDragging by remember { mutableStateOf(false) }
+    LaunchedEffect(profileDragging, selectedPoint) {
+        if (!profileDragging && selectedPoint != null) {
+            delay(3000)
+            selectedPoint = null
+        }
+    }
     LaunchedEffect(state.track.isEmpty()) { if (state.track.isEmpty()) selectedPoint = null }
     val readout = RideReadout.from(state, selectedPoint)
     var settingsOpen by remember { mutableStateOf(false) }
@@ -97,7 +104,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }
             Column(Modifier.fillMaxWidth().weight(1f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
-                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f)) { selectedPoint = null }
+                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f))
                 if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                     color = Muted, fontSize = 8.sp, lineHeight = 9.sp, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
@@ -135,7 +142,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
           Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.2f)
               .background(Brush.verticalGradient(listOf(Ink.copy(alpha = .55f), Ink.copy(alpha = .92f))))
               .clickable { selectedPoint = null; profileMode = (profileMode + 1) % 3 }) {
-              AltitudeRibbon(state, accent, Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 2.dp), profileWindow, selectedPoint) { selectedPoint = it }
+              AltitudeRibbon(state, accent, Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 2.dp), profileWindow, selectedPoint, { profileDragging = it }) { selectedPoint = it }
               ProfileFooter(profileMode, accent, { sourcesOpen = true },
                   Modifier.align(Alignment.BottomCenter).padding(horizontal = 14.dp))
           }
@@ -152,7 +159,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }
             Column(Modifier.fillMaxWidth().weight(.38f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
-                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f)) { selectedPoint = null }
+                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f))
                 if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                     color = Muted, fontSize = 9.sp, lineHeight = 11.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
@@ -187,7 +194,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End,
                             modifier = Modifier.fillMaxWidth())
                         Box(Modifier.fillMaxWidth().height(104.dp)) {
-                            AltitudeRibbon(state, accent, Modifier.fillMaxSize().padding(top = 3.dp), profileWindow, selectedPoint) { selectedPoint = it }
+                            AltitudeRibbon(state, accent, Modifier.fillMaxSize().padding(top = 3.dp), profileWindow, selectedPoint, { profileDragging = it }) { selectedPoint = it }
                             ProfileFooter(profileMode, accent, { sourcesOpen = true }, Modifier.align(Alignment.BottomCenter))
                         }
                     }
@@ -252,8 +259,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     }
 }
 
-@Composable private fun SpeedGauge(state: RideUiState, readout: RideReadout, accent: Color, modifier: Modifier,
-    onReturnToLive: () -> Unit) {
+@Composable private fun SpeedGauge(state: RideUiState, readout: RideReadout, accent: Color, modifier: Modifier) {
     val animatedSpeed by animateFloatAsState(readout.speedKmh ?: 0f,
         if (readout.historical) snap() else tween(420), label = "speed")
     val speed = if (readout.historical) readout.speedKmh ?: 0f else animatedSpeed
@@ -298,11 +304,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text(seconds?.let { "%02d:%02d:%02d".format(it / 3600, it / 60 % 60, it % 60) } ?: "—",
                 color = White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
         }
-        if (readout.historical) {
-            TextButton(onClick = onReturnToLive, modifier = Modifier.align(Alignment.TopEnd).padding(end = 8.dp)) {
-                Text("RETOUR AU DIRECT", color = Cyan, fontSize = 10.sp)
-            }
-        } else if (state.bluetoothReady) {
+        if (!readout.historical && state.bluetoothReady) {
             SmallSpeed("MOTEUR", state.motorSpeedKmh, accent, Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 14.dp))
             SmallSpeed("ROUE", state.wheelSpeedKmh, Cyan, Modifier.align(Alignment.TopStart).padding(top = 1.dp, start = 14.dp), Alignment.Start)
         }
@@ -320,21 +322,30 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
 }
 
 @Composable private fun AltitudeRibbon(state: RideUiState, accent: Color, modifier: Modifier, windowM: Double,
-    selected: com.alban.ebike.model.TrackPoint?, onSelect: (com.alban.ebike.model.TrackPoint) -> Unit) {
+    selected: com.alban.ebike.model.TrackPoint?, onDraggingChange: (Boolean) -> Unit,
+    onSelect: (com.alban.ebike.model.TrackPoint) -> Unit) {
     val sunlight = rememberAmbientLight()
     val points = remember(state.profile, state.distanceM, windowM) { DistanceAltitudeProfile.visible(state.profile, state.distanceM, windowM) }
     val pulse by rememberInfiniteTransition(label = "profile marker").animateFloat(0f, 1f,
         infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart), label = "profile marker pulse")
     val latestState by rememberUpdatedState(state)
     val selectPoint by rememberUpdatedState(onSelect)
-    Canvas(modifier.pointerInput(windowM) {
+    val draggingChanged by rememberUpdatedState(onDraggingChange)
+    val currentWindow by rememberUpdatedState(windowM)
+    Canvas(modifier.pointerInput(Unit) {
         fun select(x: Float) {
             val current = latestState
-            val distance = current.distanceM - windowM + (x / size.width).coerceIn(0f, 1f) * windowM
-            current.track.filter { it.altitudeValid && it.distanceM >= current.distanceM - windowM }
+            val distance = current.distanceM - currentWindow + (x / size.width).coerceIn(0f, 1f) * currentWindow
+            current.track.filter { it.altitudeValid && it.distanceM >= current.distanceM - currentWindow }
                 .minByOrNull { abs(it.distanceM - distance) }?.let(selectPoint)
         }
-        detectDragGestures(onDragStart = { select(it.x) }, onDrag = { change, _ -> change.consume(); select(change.position.x) })
+        try {
+            detectDragGestures(
+                onDragStart = { draggingChanged(true); select(it.x) },
+                onDragEnd = { draggingChanged(false) },
+                onDragCancel = { draggingChanged(false) },
+                onDrag = { change, _ -> change.consume(); select(change.position.x) })
+        } finally { draggingChanged(false) }
     }) {
         repeat(3) { i -> val y = size.height * (i + 1) / 4; drawLine(Muted.copy(alpha = .13f), Offset(0f, y), Offset(size.width, y)) }
         if (points.size < 2) return@Canvas
