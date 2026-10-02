@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.alban.ebike.data.DistanceAltitudeProfile
 import com.alban.ebike.model.RideUiState
 import com.alban.ebike.model.RideReadout
+import com.alban.ebike.model.formatRideDuration
 import com.alban.ebike.scene.RouteMetric
 import com.alban.ebike.scene.RouteColors
 import com.alban.ebike.scene.SceneWindow
@@ -299,11 +300,19 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text("km/h", color = Muted, fontSize = 13.sp, letterSpacing = 2.sp,
                 modifier = Modifier.offset(y = (-8).dp))
         }
-        val seconds = readout.movingTimeMs?.div(1000)
         Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 6.dp)) {
-            Text(if (readout.historical) "TEMPS AU POINT" else "TEMPS EN MOUVEMENT", color = Muted, fontSize = 8.sp)
-            Text(seconds?.let { "%02d:%02d:%02d".format(it / 3600, it / 60 % 60, it % 60) } ?: "—",
-                color = White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+            val compactText = androidx.compose.ui.text.TextStyle(
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false))
+            Text(if (readout.historical) "TEMPS AU POINT" else "TEMPS EN MOUVEMENT",
+                color = Muted, fontSize = 8.sp, lineHeight = 10.sp, style = compactText)
+            Text(readout.movingTimeMs?.let(::formatRideDuration) ?: "—",
+                color = White, fontSize = 28.sp, lineHeight = 29.sp, style = compactText,
+                fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+            Box(Modifier.height(12.dp)) {
+                if (readout.resting && readout.restTimeMs != null) Text(
+                    "REPOS ${formatRideDuration(readout.restTimeMs)}", color = Muted,
+                    fontSize = 8.sp, lineHeight = 10.sp, style = compactText, maxLines = 1)
+            }
         }
         if (!readout.historical && state.bluetoothReady) {
             SmallSpeed("MOTEUR", state.motorSpeedKmh, accent, Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 14.dp))

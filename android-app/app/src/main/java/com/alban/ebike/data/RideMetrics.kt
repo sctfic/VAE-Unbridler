@@ -3,13 +3,22 @@ package com.alban.ebike.data
 /** Monotonic time, no interpolation across missing samples or stops. */
 class MovingTimer {
     var milliseconds = 0L; private set
+    var restMilliseconds = 0L; private set
+    var resting = false; private set
     private var previousMs: Long? = null
     private var above = false
-    fun reset() { milliseconds = 0; previousMs = null; above = false }
+    fun reset() { milliseconds = 0; restMilliseconds = 0; resting = false; previousMs = null; above = false }
     fun update(now: Long, speed: Float?, threshold: Float): Long {
         val moving = speed != null && speed.isFinite() && speed > threshold
-        previousMs?.let { if (above && moving && now - it in 1L..4000L) milliseconds += now - it }
-        previousMs = now; above = moving
+        val stopped = speed != null && speed.isFinite() && speed >= 0f && speed <= threshold
+        previousMs?.let {
+            if (now - it in 1L..4000L) {
+                if (above && moving) milliseconds += now - it
+                if (resting && stopped) restMilliseconds += now - it
+            }
+        }
+        if (moving) restMilliseconds = 0
+        previousMs = now; above = moving; resting = stopped
         return milliseconds
     }
 }

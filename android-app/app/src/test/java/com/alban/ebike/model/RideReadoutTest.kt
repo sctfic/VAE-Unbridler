@@ -43,4 +43,16 @@ class RideReadoutTest {
         assertEquals(5000.0, shown.distanceM, 0.0)
         assertEquals(300f, shown.elevationGainM!!, 0f); assertEquals(900000L, shown.movingTimeMs!!)
     }
+    @Test fun durationHidesOnlyZeroHours() {
+        assertEquals("00:00", formatRideDuration(0))
+        assertEquals("01:05", formatRideDuration(65000))
+        assertEquals("59:59", formatRideDuration(3599000))
+        assertEquals("01:00:00", formatRideDuration(3600000))
+    }
+    @Test fun historicalRestDoesNotBorrowCurrentRest() {
+        val point = TrackPoint(0.0, 0.0, 100f, 1000, restTimeMs = 45000, resting = true)
+        val shown = RideReadout.from(live.copy(restTimeMs = 90000, resting = false), point)
+        assertTrue(shown.resting); assertEquals(45000L, shown.restTimeMs!!)
+    }
+
 }

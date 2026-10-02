@@ -41,7 +41,7 @@ object RideStateStore {
         resetGpsSpeed()
         RideTrackJournal.startNewRide()
         _state.update { it.copy(distanceM = 0.0, track = emptyList(), profile = emptyList(),
-            position = null, altitudeM = null, movingTimeMs = 0, elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
+            position = null, altitudeM = null, movingTimeMs = 0, restTimeMs = 0, resting = false, elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
         GpsDebugLog.record("RESET trajet confirmé")
     }
 
@@ -52,7 +52,7 @@ object RideStateStore {
                 gpsStatus = "Signal GPS en attente") }
         }
         val elapsed = movingTimer.update(nowMs, _state.value.displayedSpeedKmh, movingThresholdKmh)
-        _state.update { it.copy(movingTimeMs = elapsed) }
+        _state.update { it.copy(movingTimeMs = elapsed, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting) }
     }
 
     @Synchronized
@@ -147,7 +147,7 @@ object RideStateStore {
         val snapshot = _state.value
         val point = TrackPoint(location.latitude, location.longitude, altitude ?: 0f, time,
             distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, inclination, hasAltitude,
-            movingTimeMs = movingTimer.milliseconds, elevationGainM = elevationGain.metres,
+            movingTimeMs = movingTimer.milliseconds, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting, elevationGainM = elevationGain.metres,
             speedApproximate = snapshot.gpsSpeedValid && snapshot.gpsSpeedApproximate,
             speedSource = snapshot.displayedSpeedSource)
         if (decision.append) {

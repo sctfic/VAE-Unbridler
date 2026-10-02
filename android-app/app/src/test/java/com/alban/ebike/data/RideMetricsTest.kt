@@ -23,4 +23,21 @@ class RideMetricsTest {
         assertEquals(8f, gain.metres, 0f)
         gain.reset(); assertEquals(0f, gain.metres, 0f)
     }
+    @Test fun restCountsOnlyMeasuredStopsAndResetsAtEveryValidMovement() {
+        val timer = MovingTimer()
+        timer.update(0, 0f, 4f); timer.update(1000, 4f, 4f)
+        assertTrue(timer.resting); assertEquals(1000L, timer.restMilliseconds)
+        timer.update(2000, null, 4f)
+        assertFalse(timer.resting); assertEquals(1000L, timer.restMilliseconds)
+        timer.update(3000, 0f, 4f); timer.update(4000, 0f, 4f)
+        assertEquals(2000L, timer.restMilliseconds)
+        timer.update(20000, 0f, 4f)
+        assertEquals(2000L, timer.restMilliseconds)
+        timer.update(21000, 5f, 4f)
+        assertFalse(timer.resting); assertEquals(0L, timer.restMilliseconds)
+        timer.update(22000, 0f, 4f); timer.update(23000, 0f, 4f)
+        assertEquals(1000L, timer.restMilliseconds)
+        timer.reset(); assertEquals(0L, timer.restMilliseconds); assertFalse(timer.resting)
+    }
+
 }
