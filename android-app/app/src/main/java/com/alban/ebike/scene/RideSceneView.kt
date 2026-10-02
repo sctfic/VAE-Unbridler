@@ -21,6 +21,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     var onViewModeRequested: () -> Unit = {}
     var onOptionsRequested: () -> Unit = {}
     var onFrameReady: (Long) -> Unit = {}
+    var onInteractionChanged: (Boolean) -> Unit = {}
     private val scaleGestures = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val factor = detector.scaleFactor.toDouble()
@@ -43,12 +44,14 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     })
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            onInteractionChanged(true)
             parent?.requestDisallowInterceptTouchEvent(true)
             queueEvent { sceneRenderer.orbit.touch() }
         }
         scaleGestures.onTouchEvent(event)
         gestures.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            onInteractionChanged(false)
             val now = SystemClock.uptimeMillis()
             queueEvent { sceneRenderer.orbit.release(now) }
             parent?.requestDisallowInterceptTouchEvent(false)
@@ -61,7 +64,9 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
         val now = SystemClock.uptimeMillis()
         queueEvent { sceneRenderer.orbit.movement(distanceM, now); sceneRenderer.grade = grade }
     }
-    fun selectPivot(point: WorldPoint?) { queueEvent { sceneRenderer.pivot = point } }
+    fun selectPoint(point: WorldPoint?) { queueEvent { sceneRenderer.selectedPosition = point } }
+    fun inspectTrack(enabled: Boolean) { queueEvent { sceneRenderer.inspection = enabled; sceneRenderer.orbit.automaticPaused = enabled } }
+    fun selectedMarker() = sceneRenderer.selectedMarker
     fun setSunlight(amount: Float) { queueEvent { sceneRenderer.sunlight = amount } }
     fun cameraPose() = sceneRenderer.cameraPose()
     fun parcelLabels() = sceneRenderer.visibleLabels
@@ -88,6 +93,8 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     }
     fun pauseScene() {
         if (!running) return
+        onInteractionChanged(false)
+        queueEvent { sceneRenderer.orbit.release(SystemClock.uptimeMillis()) }
         running = false; removeCallbacks(frame); onPause()
     }
     override fun onDetachedFromWindow() { pauseScene(); super.onDetachedFromWindow() }
@@ -100,7 +107,11 @@ private class SceneRenderer : GLSurfaceView.Renderer {
     var onFrameReady: (Long) -> Unit = {}
     val orbit = SceneOrbit()
     var grade = 0f
-    var pivot: WorldPoint? = null
+    var selectedPosition: WorldPoint? = null
+    var inspection = false
+    @Volatile var selectedMarker: ScreenPoint? = null
+    private var pathCenter = WorldPoint(0.0, 0.0)
+    private var fitCenter: WorldPoint? = null
     var sunlight = 0f
     @Volatile var pending: SceneMesh? = null
     private var mesh: SceneMesh? = null
@@ -160,6 +171,8 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         if (next != null && next !== mesh) {
             val previous = mesh
             mesh = next
+            pathCenter = TrackCamera.barycenter(next.frame)
+            fitCenter = null
             framePoints = next.frame.map { WorldPoint(it.east - next.center.east, it.north - next.center.north, it.height - next.center.height) }
             fittedHeading = Double.NaN
             val arrays = listOf(next.surface, next.grid, next.contours, next.route, next.marker, next.routeColors, next.roads, next.waterways, next.paths, next.buildings, next.parcels)
@@ -183,7 +196,12 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             }
         }
         val original = mesh ?: return
-        val scene = pivot?.let { original.copy(center = it) } ?: original
+        val scene = if (inspection) original.copy(center = pathCenter) else original
+        if (fitCenter != scene.center) {
+            framePoints = scene.frame.map { WorldPoint(it.east - scene.center.east,
+                it.north - scene.center.north, it.height - scene.center.height) }
+            fitCenter = scene.center; fittedHeading = Double.NaN
+        }
         if (program == 0) return
         heading = orbit.advance(scene.heading, SystemClock.uptimeMillis(), grade)
         visiblePose = CameraPose(heading, orbit.tilt)
@@ -191,11 +209,12 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             fit = TrackCamera.fit(framePoints, heading, aspect, orbit.tilt)
             fittedHeading = heading; fittedAspect = aspect; fittedTilt = orbit.tilt
         }
-        if (pivot != null) fit = TrackCamera.fit(scene.frame.map {
-            WorldPoint(it.east - scene.center.east, it.north - scene.center.north, it.height - scene.center.height)
-        }, heading, aspect, orbit.tilt)
         // Expand immediately to keep every point inside; ease in when the route becomes smaller.
         distance = if (fit > distance) fit else distance + (fit - distance) * .055
+        selectedMarker = selectedPosition?.let { point ->
+            TrackCamera.project(WorldPoint(point.east - scene.center.east, point.north - scene.center.north,
+                point.height - scene.center.height), heading, distance / orbit.zoom, aspect, orbit.tilt)
+        }?.takeIf { it.depth > .5 && it.x in -1.0..1.0 && it.y in -1.0..1.0 }
         visibleLabels = scene.parcelLabels.mapNotNull { label ->
             val p = label.point
             val x = p.east - scene.center.east; val y = p.north - scene.center.north; val z = p.height - scene.center.height

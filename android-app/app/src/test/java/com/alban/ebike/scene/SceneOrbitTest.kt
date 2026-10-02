@@ -46,4 +46,31 @@ class SceneOrbitTest {
         orbit.release(9000)
         assertEquals(1.0, orbit.advance(0.0, 11999), .00001)
     }
+    @Test fun inspectionFreezesAutomaticCameraButAllowsManualPerspective() {
+        val orbit = SceneOrbit()
+        orbit.advance(0.0, 0)
+        orbit.automaticPaused = true
+        repeat(100) { orbit.advance(2.0, (it + 1) * 100L, 20f) }
+        assertEquals(0.0, orbit.heading, 0.0)
+        assertEquals(TrackCamera.TILT, orbit.tilt, 0.0)
+        orbit.touch(); orbit.drag(.5); orbit.incline(-.1); orbit.scale(2.0)
+        orbit.release(11000)
+        orbit.advance(2.0, 15000)
+        assertEquals(.5, orbit.heading, .00001)
+        assertEquals(TrackCamera.TILT - .1, orbit.tilt, .00001)
+        assertEquals(2.0, orbit.zoom, 0.0)
+        orbit.automaticPaused = false
+        orbit.advance(2.0, 15100)
+        assertTrue(orbit.heading > .5)
+    }
+
+    @Test fun routeCenterIsBarycenterAndSelectedPointProjectsAwayFromCenter() {
+        val points = listOf(WorldPoint(0.0, 0.0), WorldPoint(0.0, 0.0), WorldPoint(90.0, 30.0, 6.0))
+        val center = TrackCamera.barycenter(points)
+        assertEquals(WorldPoint(30.0, 10.0, 2.0), center)
+        val marker = TrackCamera.project(WorldPoint(60.0, 20.0, 4.0), 0.0, 200.0, 1.0)
+        assertTrue(marker.x > 0)
+        assertTrue(marker.y > 0)
+    }
+
 }

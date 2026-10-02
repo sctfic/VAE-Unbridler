@@ -36,7 +36,8 @@ import kotlin.math.*
 @Composable
 internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteMetric,
     window: SceneWindow, onWindowChange: (SceneWindow) -> Unit, onReset: () -> Unit,
-    debugVisible: Boolean, onDebugChange: (Boolean) -> Unit, selectedPoint: com.alban.ebike.model.TrackPoint? = null, onStatus: (String) -> Unit) {
+    debugVisible: Boolean, onDebugChange: (Boolean) -> Unit, selectedPoint: com.alban.ebike.model.TrackPoint? = null, profileDragging: Boolean = false,
+    onSceneTouch: (Boolean) -> Unit = {}, onStatus: (String) -> Unit) {
     val context = LocalContext.current
     val terrainModel = remember(context) {
         androidx.lifecycle.ViewModelProvider(context.terrainActivity())[TerrainViewModel::class.java]
@@ -77,12 +78,16 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     val report by rememberUpdatedState(onStatus)
     val reset by rememberUpdatedState(onReset)
     val detail = TerrainDetail.forWindow(window)
-    val selectedTrack = remember(state.track, window) { TrackWindow.select(state.track, window) }
+    val selectedTrack = remember(state.track, window, selectedPoint != null) {
+        if (selectedPoint != null) state.track else TrackWindow.select(state.track, window)
+    }
     SideEffect {
         view.onFrameReady = { milliseconds ->
             diagnostics.report("GPU", "Buffers + commandes de rendu : ${milliseconds} ms")
             diagnostics.end("GPU")
         }
+        view.onInteractionChanged = onSceneTouch
+        view.inspectTrack(profileDragging || selectedPoint != null)
         view.onResetRequested = { reset() }
         view.onOptionsRequested = { optionsOpen = true }
         view.onViewModeRequested = { onWindowChange(window.next()) }
@@ -92,7 +97,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     LaunchedEffect(selectedPoint, terrain) {
         val grid = terrain
         val point = selectedPoint
-        view.selectPivot(if (point != null && grid != null) {
+        view.selectPoint(if (point != null && grid != null) {
             val local = GeoFrame.local(point.latitude, point.longitude, grid.originLat, grid.originLon)
             val base = grid.heights.filter { it.isFinite() }.minOrNull() ?: 0f
             local.copy(height = ((grid.sampleSmooth(local.east, local.north) ?: base.toDouble()) - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 3)
@@ -110,6 +115,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     LaunchedEffect(terrain) { terrain?.let { report(it.status) } }
     var heading by remember { mutableDoubleStateOf(0.0) }
     var cameraPose by remember { mutableStateOf(CameraPose()) }
+    var selectionMarker by remember { mutableStateOf<ScreenPoint?>(null) }
     var active by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     DisposableEffect(lifecycle, view) {
         val observer = LifecycleEventObserver { _, event ->
@@ -146,7 +152,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     }
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        while (isActive) { cameraPose = view.cameraPose(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(100) }
+        while (isActive) { cameraPose = view.cameraPose(); selectionMarker = view.selectedMarker(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(33) }
     }
     LaunchedEffect(active, mapArea, terrain, detail) {
         if (!active) return@LaunchedEffect
@@ -204,10 +210,11 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         CompassRose(cameraPose, Modifier.align(Alignment.TopEnd)
             .padding(top = 2.dp).offset(x = 4.dp)
             .size(116.dp, if (landscape) 96.dp else 110.dp))
-        // The renderer subtracts the selected pivot from all vertices: this exact
-        // geographic point projects to the viewport centre at every orbit/zoom.
-        if (selectedPoint != null && terrain != null) Canvas(Modifier.fillMaxSize()) {
-            drawSelectionMarker(center)
+        if (selectedPoint != null) Canvas(Modifier.fillMaxSize()) {
+            selectionMarker?.let { point ->
+                drawSelectionMarker(Offset(((point.x + 1) * size.width / 2).toFloat(),
+                    ((1 - point.y) * size.height / 2).toFloat()))
+            }
         }
         if (debugVisible) Column(Modifier.align(Alignment.CenterStart).padding(start = 10.dp)
             .background(Color(0xB3050A11)).padding(5.dp)) {

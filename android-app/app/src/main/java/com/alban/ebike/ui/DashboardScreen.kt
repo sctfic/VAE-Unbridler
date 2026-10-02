@@ -49,8 +49,9 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     onToggleMode: () -> Unit, onSaveCircumference: (Int) -> Unit, onResetRide: () -> Unit = {}) {
     var selectedPoint by remember { mutableStateOf<com.alban.ebike.model.TrackPoint?>(null) }
     var profileDragging by remember { mutableStateOf(false) }
-    LaunchedEffect(profileDragging, selectedPoint) {
-        if (!profileDragging && selectedPoint != null) {
+    var sceneTouching by remember { mutableStateOf(false) }
+    LaunchedEffect(profileDragging, sceneTouching, selectedPoint) {
+        if (!profileDragging && !sceneTouching && selectedPoint != null) {
             delay(3000)
             selectedPoint = null
         }
@@ -91,7 +92,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
           Box(Modifier.fillMaxSize()) {
            TerrainScene(state, Modifier.align(Alignment.TopEnd).fillMaxWidth(.6f).fillMaxHeight(), metric,
                sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
-               debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint) { terrainStatus = it }
+               debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
           Row(Modifier.fillMaxWidth().fillMaxHeight(.8f)) {
            Column(Modifier.weight(.4f).fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 6.dp),
@@ -167,7 +168,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Separator(accent)
             Box(Modifier.fillMaxWidth().weight(.62f).clipToBounds()) {
                 TerrainScene(state, Modifier.fillMaxSize(), metric, sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
-                    debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint) { terrainStatus = it }
+                    debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
                 Column(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(end = 116.dp)
                     .padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
