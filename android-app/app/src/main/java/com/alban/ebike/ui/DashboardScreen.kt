@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.ui.draw.blur
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -276,9 +275,9 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text(if (!state.bluetoothReady) "MODE —" else if (!state.modeSupported) "MODE INCONNU" else if (state.speedMode) "TURBO" else "STANDARD",
                 color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
             Text(state.displayedSpeedSource, color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
-            Text(if (state.displayedSpeedKmh == null) "—" else (if (state.gpsSpeedApproximate && state.gpsSpeedValid) "≈" else "") + speed.roundToInt().toString(), color = White,
+            Text(if (state.displayedSpeedKmh == null) "—" else speed.roundToInt().toString(), color = White,
                 fontSize = numberSize,
-                modifier = Modifier.blur(if (state.gpsSpeedValid && state.gpsSpeedApproximate) 1.dp else 0.dp),
+                modifier = speedGlitch(state.gpsSpeedValid && state.gpsSpeedApproximate),
                 fontWeight = FontWeight.Bold, letterSpacing = (-3).sp, maxLines = 1, softWrap = false)
             Text("km/h", color = Muted, fontSize = 13.sp, letterSpacing = 2.sp,
                 modifier = Modifier.offset(y = (-8).dp))
@@ -329,12 +328,11 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         val low = minPoint.altitudeM; val actualHigh = maxPoint.altitudeM; val high = max(low + 3, actualHigh)
         fun screen(point: com.alban.ebike.model.AltitudePoint): Offset {
             val x = DistanceAltitudeProfile.horizontalFraction(point.distanceM, state.distanceM, windowM) * size.width
-            val y = size.height * .9f - (point.altitudeM - low) / (high - low) * size.height * .75f
+            // Reserve the footer and the ring radius, so low-altitude selections stay visible.
+            val top = 12.dp.toPx()
+            val bottom = (size.height - 38.dp.toPx()).coerceAtLeast(top + 1f)
+            val y = bottom - (point.altitudeM - low) / (high - low) * (bottom - top)
             return Offset(x.coerceIn(0f, size.width), y)
-        }
-        selected?.let {
-            val x = DistanceAltitudeProfile.horizontalFraction(it.distanceM, state.distanceM, windowM) * size.width
-            if (x in 0f..size.width) drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
         }
         val locations = points.map(::screen)
         fun color(altitude: Float, alpha: Float = 1f): Color {
@@ -367,6 +365,9 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         }
         extremum(maxPoint, "MAX", true)
         if (minPoint !== maxPoint) extremum(minPoint, "MIN", false)
+        selected?.takeIf { it.distanceM in (state.distanceM - windowM)..state.distanceM }?.let {
+            drawSelectionMarker(screen(com.alban.ebike.model.AltitudePoint(it.distanceM, it.altitudeM)))
+        }
     }
 }
 
@@ -374,21 +375,26 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("ride-options", android.content.Context.MODE_PRIVATE) }
     var threshold by remember { mutableFloatStateOf(preferences.getFloat("moving-threshold", 4f)) }
+    var gradePoints by remember { mutableFloatStateOf(preferences.getInt("grade-points", 10).coerceIn(3, 30).toFloat()) }
     var directMode by remember { mutableStateOf(true) }
     var value by remember { mutableStateOf(currentCircumferenceMm.toString()) }
     val calculated = value.toDoubleOrNull()?.let { if (directMode) it.toInt() else (Math.PI * it).toInt() }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Roue et chronomètre") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Roue, chronomètre et pente") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (directMode) "Longueur parcourue par tour (mm)" else "Diamètre de roue (mm)")
             OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("mm") })
             TextButton(onClick = { directMode = !directMode }) { Text(if (directMode) "Saisir le diamètre" else "Saisir la longueur par tour") }
             Text("Circonférence : ${calculated ?: "—"} mm")
             Text("Chronomètre : vitesse > ${threshold.toInt()} km/h")
             Slider(value = threshold, onValueChange = { threshold = it.roundToInt().toFloat() }, valueRange = 0f..20f, steps = 19)
+            Text("Pente : ${gradePoints.toInt()} derniers points GPS")
+            Slider(value = gradePoints, onValueChange = { gradePoints = it.roundToInt().toFloat() }, valueRange = 3f..30f, steps = 26)
+            Text("Points valides en déplacement. Plus de points : pente plus stable, mais moins réactive.")
         }
     }, confirmButton = { TextButton(onClick = { calculated?.takeIf { it in 1000..4000 }?.let { onSave(it)
-                preferences.edit().putFloat("moving-threshold", threshold).apply()
+                preferences.edit().putFloat("moving-threshold", threshold).putInt("grade-points", gradePoints.toInt()).apply()
                 com.alban.ebike.data.RideStateStore.movingThresholdKmh = threshold
+                com.alban.ebike.data.RideStateStore.gradePointCount = gradePoints.toInt()
                 onDismiss() } }) { Text("Enregistrer") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
 }

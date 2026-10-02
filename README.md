@@ -1,9 +1,9 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.0** — auteur **Lopez Alban**.
+Version Android **0.4.1** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
-Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.0](RELEASE_0.4.0.md).
+Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.1](RELEASE_0.4.1.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
@@ -28,7 +28,7 @@ Le [cockpit holographique](COCKPIT.md) affiche les grandes valeurs sur une scèn
 avec relief réel filaire, courbes de niveau, cadrage automatique et historique local du trajet.
 
 - vitesse GPS principale animée, vitesse de roue et vitesse transmise au moteur ;
-- profil d'altitude 500 m / complet / 2 km (un toucher pour changer) et pente par régression sur les 20 derniers mètres du profil ; l’axe horizontal suit la distance GPS validée, profil et pente figés à l’arrêt ;
+- profil d'altitude 500 m / complet / 2 km (un toucher pour changer) et pente par régression sur les 10 derniers points GPS valides en déplacement (3 à 30 réglables) ; l’axe horizontal suit la distance GPS validée, profil et pente figés à l’arrêt ;
 - distance et trace GPS 3D orientée selon les derniers points ;
 - GPS, altitude et tracé actifs dès l’ouverture de l’application, même sans ESP32 ;
 - circonférence de roue ou diamètre réglable depuis l'application et enregistré dans l'ESP32 ;
@@ -56,7 +56,7 @@ GPIO 6 est une sortie logique 3,3 V. Elle doit piloter l'entrée d'un relais Pho
 
 ### Diagnostic GPS et journal local
 
-La grande vitesse privilégie le GPS valide ou estimé (≈), puis la roue si le Bluetooth est connecté
+La grande vitesse privilégie le GPS valide ou estimé (effet glitch), puis la roue si le Bluetooth est connecté
 (libellé **ROUE**), sinon affiche un tiret. Un zéro GPS valide reste prioritaire.
 Le bas du cadran affiche fournisseur, précision horizontale, âge de la mesure,
 vitesse brute, incertitude de vitesse et décision du filtre. Sans mesures, il affiche
@@ -89,7 +89,7 @@ Les archives n’existent qu’après rotation. Ces fichiers restent locaux, san
 
 Le GPS démarre à l’ouverture de l’application une fois la localisation précise autorisée. L’altitude, le profil, la distance et le tracé continuent sans ESP32 et lors d’une déconnexion Bluetooth. Seules les vitesses de roue et moteur dépendent de la carte. La notification persistante permet d’arrêter le suivi. Les points peu précis (plus de 20 m d’incertitude) sont ignorés ; à l’intérieur, il peut être nécessaire de sortir pour obtenir un tracé. Une altitude absente n’est pas affichée comme une altitude mesurée de zéro.
 
-Le bouton **ESP32** est gris hors connexion et cyan gras lorsqu’il est connecté. La vitesse GPS privilégie la mesure native Android. En son absence ou si elle est refusée, une régression pondérée des coordonnées sur les six dernières secondes fournit une approximation marquée ≈ et légèrement brouillée. Trois positions sur au moins deux secondes sont nécessaires ; les positions périmées, imprécises ou incohérentes restent rejetées. Le départ demande trois mesures sur au moins 1,5 seconde et un déplacement supérieur à l’incertitude cumulée. L’incertitude maximale vaut 1 m/s au départ, puis 30 % de la vitesse (bornée entre 1 et 3 m/s) en mouvement. Une médiane de trois mesures et un filtre exponentiel court atténuent les pics. Un arrêt bien mesuré remet immédiatement le filtre à zéro ; les petites vitesses ambiguës demandent deux mesures consécutives. Ces seuils peuvent masquer les déplacements très lents.
+Le bouton **ESP32** est gris hors connexion et cyan gras lorsqu’il est connecté. La vitesse GPS privilégie la mesure native Android. En son absence ou si elle est refusée, une régression pondérée des coordonnées sur les six dernières secondes fournit une estimation signalée par des bandes de chiffres décalées aléatoirement. Trois positions sur au moins deux secondes sont nécessaires ; les positions périmées, imprécises ou incohérentes restent rejetées. Le départ demande trois mesures sur au moins 1,5 seconde et un déplacement supérieur à l’incertitude cumulée. L’incertitude maximale vaut 1 m/s au départ, puis 30 % de la vitesse (bornée entre 1 et 3 m/s) en mouvement. Une médiane de trois mesures et un filtre exponentiel court atténuent les pics. Un arrêt bien mesuré remet immédiatement le filtre à zéro ; les petites vitesses ambiguës demandent deux mesures consécutives. Ces seuils peuvent masquer les déplacements très lents.
 
 Une vitesse temporairement incertaine est maintenue au maximum deux secondes, avec la mention **maintien** dans le diagnostic, puis utilise la régression positionnelle (repli roue connectée si aucune estimation, sinon **—**). Sans nouveau fix, le délai de péremption reste de quatre secondes. La trace et la distance sont validées séparément : des positions cohérentes continuent le parcours même sans vitesse native fiable. Un déplacement positionnel doit dépasser l’incertitude sur une fenêtre bornée ; un arrêt confirmé fige la distance. Seuls une perte de positions de plus de quatre secondes, un point invalide ou un saut excessif créent une interruption. Le journal GPS indique désormais `trace`, `append`, `segmentStart` et `stepM` pour diagnostiquer chaque décision. Ce filtre ne remplace pas un essai réel à l’extérieur.
 

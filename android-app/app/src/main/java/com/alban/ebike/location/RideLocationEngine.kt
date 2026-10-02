@@ -30,6 +30,8 @@ class RideLocationEngine(context: Context) {
         GpsDebugLog.initialize(appContext)
         RideStateStore.movingThresholdKmh = appContext.getSharedPreferences("ride-options", Context.MODE_PRIVATE)
             .getFloat("moving-threshold", 4f).coerceIn(0f, 20f)
+        RideStateStore.gradePointCount = appContext.getSharedPreferences("ride-options", Context.MODE_PRIVATE)
+            .getInt("grade-points", 10).coerceIn(3, 30)
     }
     private val handler = Handler(Looper.getMainLooper())
     private val staleCheck = object : Runnable {

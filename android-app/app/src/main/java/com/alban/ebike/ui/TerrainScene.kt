@@ -194,6 +194,11 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         CompassRose(cameraPose, Modifier.align(Alignment.TopEnd)
             .padding(top = 2.dp).offset(x = 4.dp)
             .size(116.dp, if (landscape) 96.dp else 110.dp))
+        // The renderer subtracts the selected pivot from all vertices: this exact
+        // geographic point projects to the viewport centre at every orbit/zoom.
+        if (selectedPoint != null && terrain != null) Canvas(Modifier.fillMaxSize()) {
+            drawSelectionMarker(center)
+        }
         if (debugVisible) Column(Modifier.align(Alignment.CenterStart).padding(start = 10.dp)
             .background(Color(0xB3050A11)).padding(5.dp)) {
             Text("DEBUG CHARGEMENT 3D", fontSize = 9.sp, color = Color(0xFF69E3F5))

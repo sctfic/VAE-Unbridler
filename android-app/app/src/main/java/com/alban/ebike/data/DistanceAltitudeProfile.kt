@@ -20,10 +20,12 @@ class DistanceAltitudeProfile {
         return points.toList()
     }
 
-    fun grade(): Float? = if (pendingBreak) null else terminalGrade(points.toList())
+    fun grade(sampleCount: Int = DEFAULT_GRADE_POINTS): Float? =
+        if (pendingBreak) null else terminalGrade(points.toList(), sampleCount)
 
     companion object {
         const val WINDOW_M = 500.0
+        const val DEFAULT_GRADE_POINTS = 10
         fun horizontalFraction(pointDistanceM: Double, currentDistanceM: Double, windowM: Double = WINDOW_M): Float =
             ((pointDistanceM - currentDistanceM + windowM) / windowM.coerceAtLeast(1.0)).toFloat()
 
@@ -32,26 +34,24 @@ class DistanceAltitudeProfile {
             return if (first < 0) emptyList() else points.drop((first - 1).coerceAtLeast(0))
         }
 
-        /** Regression of spatially resampled heights over 20 m, never across gaps. */
-        fun terminalGrade(points: List<AltitudePoint>): Float? {
-            val end = points.lastOrNull() ?: return null
-            if (end.segmentStart) return null
-            val segment = points.takeLastWhile { !it.segmentStart }.let { tail ->
-                points.getOrNull(points.size - tail.size - 1)?.let { listOf(it) + tail } ?: tail
+        /** Last N accepted moving GPS samples, with no fixed distance window. */
+        fun terminalGrade(points: List<AltitudePoint>, sampleCount: Int = DEFAULT_GRADE_POINTS): Float? {
+            require(sampleCount in 3..30)
+            val recent = ArrayList<AltitudePoint>(sampleCount)
+            for (index in points.indices.reversed()) {
+                val point = points[index]
+                if (!point.distanceM.isFinite() || !point.altitudeM.isFinite()) break
+                if (recent.isEmpty() || point.distanceM < recent.last().distanceM) recent.add(point)
+                if (point.segmentStart || recent.size == sampleCount) break
             }
-            val start = maxOf(end.distanceM - 20.0, segment.first().distanceM)
-            val span = end.distanceM - start
-            if (span < 12) return null
-            val samples = (0..10).map { i ->
-                val x = start + span * i / 10
-                val right = segment.indexOfFirst { it.distanceM >= x }.coerceAtLeast(0)
-                val b = segment[right]; val a = segment[(right - 1).coerceAtLeast(0)]
-                val fraction = if (b.distanceM > a.distanceM) (x - a.distanceM) / (b.distanceM - a.distanceM) else 0.0
-                x to a.altitudeM + fraction * (b.altitudeM - a.altitudeM)
-            }
-            val meanX = samples.map { it.first }.average(); val meanY = samples.map { it.second }.average()
-            val variance = samples.sumOf { (it.first - meanX) * (it.first - meanX) }
-            return (100 * samples.sumOf { (it.first - meanX) * (it.second - meanY) } / variance).toFloat()
+            if (recent.size < 3) return null
+            // Offset distances to retain precision after long rides; no minimum span in metres.
+            val origin = recent.last().distanceM
+            val meanX = recent.map { it.distanceM - origin }.average()
+            val meanY = recent.map { it.altitudeM.toDouble() }.average()
+            val variance = recent.sumOf { val x = it.distanceM - origin - meanX; x * x }
+            if (variance <= 1e-9) return null
+            return (100 * recent.sumOf { (it.distanceM - origin - meanX) * (it.altitudeM - meanY) } / variance).toFloat()
         }
     }
 }

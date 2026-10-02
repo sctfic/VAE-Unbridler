@@ -43,7 +43,7 @@ data class RideUiState(
         else -> null
     }
     val displayedSpeedSource: String get() = when {
-        gpsSpeedValid -> if (gpsSpeedApproximate) "GPS ≈" else "GPS"
+        gpsSpeedValid -> "GPS"
         bluetoothReady -> "ROUE"
         else -> "GPS / ROUE —"
     }

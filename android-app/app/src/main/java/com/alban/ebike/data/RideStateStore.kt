@@ -28,6 +28,7 @@ object RideStateStore {
     private val movingTimer = MovingTimer()
     private val elevationGain = ElevationGain()
     @Volatile var movingThresholdKmh = 4f
+    @Volatile var gradePointCount = DistanceAltitudeProfile.DEFAULT_GRADE_POINTS
     private val motionFilter = GpsMotionFilter()
     private val trackFilter = GpsTrackFilter()
     private var lastReliableSpeedMs = 0L
@@ -142,7 +143,7 @@ object RideStateStore {
         val profilePoints = if (decision.append || !hasAltitude) profile.update(distanceM,
             altitude.takeIf { hasAltitude }, decision.segmentStart) else _state.value.profile
         if (decision.append || !hasAltitude) elevationGain.update(altitude.takeIf { hasAltitude }, decision.segmentStart)
-        val inclination = profile.grade()
+        val inclination = profile.grade(gradePointCount)
         GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude append=${decision.append}")
         val point = TrackPoint(location.latitude, location.longitude, altitude ?: 0f, time,
             distanceM, decision.segmentStart, motion.speedKmh.takeIf { motion.reliable }, inclination, hasAltitude)
