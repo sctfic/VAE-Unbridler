@@ -85,15 +85,13 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint) { terrainStatus = it }
           Row(Modifier.fillMaxWidth().fillMaxHeight(.8f)) {
            Column(Modifier.weight(.4f).fillMaxHeight()) {
-            Row(Modifier.fillMaxWidth().height(32.dp).padding(horizontal = 6.dp),
+            Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = onAssociate, contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text("●  ESP32", color = if (state.bluetoothReady) Cyan else Color.Gray,
                         fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
                 }
-                TextButton(onClick = { settingsOpen = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp)
-                }
+                SettingsButton(circumferenceMm) { settingsOpen = true }
             }
             Column(Modifier.fillMaxWidth().weight(1f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
@@ -141,16 +139,14 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
           }
           }
          } else {
-            Row(Modifier.fillMaxWidth().height(38.dp).padding(horizontal = 6.dp),
+            Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = onAssociate, contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text("●  ESP32", color = if (state.bluetoothReady) Cyan else Color.Gray,
                         fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
                 }
                 Text("E-BikeCockpit", color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
-                TextButton(onClick = { settingsOpen = true }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp)
-                }
+                SettingsButton(circumferenceMm) { settingsOpen = true }
             }
             Column(Modifier.fillMaxWidth().weight(.38f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
@@ -206,6 +202,15 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }) { Text("Reset") } },
             dismissButton = { TextButton(onClick = { resetOpen = false }) { Text("Annuler") } })
         if (sourcesOpen) TerrainSourcesDialog { sourcesOpen = false }
+    }
+}
+
+@Composable private fun SettingsButton(circumferenceMm: Int, onClick: () -> Unit) {
+    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Setting", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, lineHeight = 15.sp)
+            Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp, lineHeight = 13.sp)
+        }
     }
 }
 
@@ -286,7 +291,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 6.dp)) {
             Text("TEMPS EN MOUVEMENT", color = Muted, fontSize = 8.sp)
             Text("%02d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60),
-                color = White, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                color = White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
         }
         if (state.bluetoothReady) {
             SmallSpeed("MOTEUR", state.motorSpeedKmh, accent, Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 14.dp))

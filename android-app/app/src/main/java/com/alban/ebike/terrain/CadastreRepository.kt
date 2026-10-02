@@ -9,7 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** IGN PCI Express WFS. Fixed small zones; labels are cadastral references, never owner names. */
-class CadastreRepository(context: Context) {
+class CadastreRepository(context: Context, private val onBytes: (Int) -> Unit = {}) {
     @Volatile var pinWrites = false
     private val cache = File(context.filesDir, "cadastre-pci-v1")
     suspend fun load(key: ElevationTileKey, refreshPartial: Boolean = false, progress: (String) -> Unit): List<Parcel> = withContext(Dispatchers.IO) {
@@ -41,7 +41,7 @@ class CadastreRepository(context: Context) {
                 val bytes = connection.inputStream.use { input ->
                     val output = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
                     while (true) { val n = input.read(buffer); if (n < 0) break
-                        check(output.size() + n <= 4 * 1024 * 1024); output.write(buffer, 0, n) }
+                        onBytes(n); check(output.size() + n <= 4 * 1024 * 1024); output.write(buffer, 0, n) }
                     output.toByteArray()
                 }
                 JSONObject(bytes.toString(Charsets.UTF_8))

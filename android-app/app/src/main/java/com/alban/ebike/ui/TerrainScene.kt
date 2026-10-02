@@ -43,6 +43,10 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     }
     val offlineStatus by terrainModel.offlineStatus.collectAsState()
     val offlineRunning by terrainModel.offlineRunning.collectAsState()
+    val downloadedBytes by terrainModel.downloadedBytes.collectAsState()
+    val cacheBytes by terrainModel.cacheBytes.collectAsState()
+    val cacheClearing by terrainModel.cacheClearing.collectAsState()
+    var confirmClearCache by remember { mutableStateOf(false) }
     var optionsTab by rememberSaveable { mutableIntStateOf(0) }
     var radiusKm by rememberSaveable { mutableFloatStateOf(5f) }
     var direction by rememberSaveable { mutableIntStateOf(0) }
@@ -52,6 +56,12 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     val geometryCache = terrainModel.geometryCache
     val preferences = remember { context.getSharedPreferences("scene-layers", android.content.Context.MODE_PRIVATE) }
     var optionsOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(optionsOpen, optionsTab) {
+        if (!optionsOpen) terrainModel.resumeCacheLoads()
+        if (optionsOpen && optionsTab == 1) while (isActive) {
+            terrainModel.refreshCacheSize(); delay(2000)
+        }
+    }
     var layers by remember { mutableStateOf(listOf("contours", "water", "roads", "paths", "buildings", "parcels")
         .associateWith { preferences.getBoolean(it, it != "parcels") }) }
     val currentLayers by rememberUpdatedState(layers)
@@ -210,6 +220,11 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             }
         }
     }
+    if (confirmClearCache) AlertDialog(onDismissRequest = { confirmClearCache = false },
+        title = { Text("Effacer le cache cartographique ?") },
+        text = { Text("Les cartes et zones hors ligne seront supprimées (${formatBytes(cacheBytes)}). Les téléchargements seront interrompus. Vos trajets et réglages sont conservés. Le chargement automatique reprendra à la fermeture des options.") },
+        confirmButton = { TextButton(onClick = { confirmClearCache = false; terrainModel.clearDownloadedCache() }) { Text("Effacer") } },
+        dismissButton = { TextButton(onClick = { confirmClearCache = false }) { Text("Annuler") } })
     if (optionsOpen) AlertDialog(onDismissRequest = { optionsOpen = false },
         title = { Text("Options") },
         text = {
@@ -219,13 +234,21 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
                     Tab(selected = optionsTab == 1, onClick = { optionsTab = 1 }, text = { Text("Hors ligne") })
                 }
                 if (optionsTab == 1) {
-                    Text("Rayon : ${radiusKm.toInt()} km · secteur de 90°")
+                    Text("Rayon : ${radiusKm.toInt()} km · " + if (direction == OfflineSector.ALL_DIRECTIONS) "tour complet 360°" else "secteur de 90°")
                     Slider(value = radiusKm, onValueChange = { radiusKm = it.roundToInt().toFloat() },
-                        valueRange = 2f..50f, steps = 47, enabled = !offlineRunning)
-                    DirectionPicker(direction, !offlineRunning) { direction = it }
+                        valueRange = 2f..50f, steps = 47, enabled = !offlineRunning && !cacheClearing)
+                    DirectionPicker(direction, !offlineRunning && !cacheClearing) { direction = it }
                     Text("Relief et calques activés autour de la position GPS. Garder l’application ouverte jusqu’à la fin. À 50 km, le téléchargement peut être long et volumineux.")
                     Text(offlineStatus)
-                    Button(enabled = !offlineRunning && state.position != null, onClick = {
+                    Text("Téléchargé cette session : ${formatBytes(downloadedBytes)}")
+                    Text("Cache cartes et relief : ${formatBytes(cacheBytes)}")
+                    if (cacheClearing) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Arrêt des téléchargements et effacement…")
+                    }
+                    TextButton(enabled = !cacheClearing && (cacheBytes > 0 || offlineRunning),
+                        onClick = { confirmClearCache = true }) { Text("Effacer le cache") }
+                    Button(enabled = !offlineRunning && !cacheClearing && state.position != null, onClick = {
                         state.position?.let { terrainModel.preload(it.latitude, it.longitude, radiusKm.toInt(), direction, layers) }
                     }) { Text("Précharger / reprendre") }
                     if (offlineRunning) TextButton(onClick = { terrainModel.cancelOffline() }) { Text("Interrompre") }
@@ -319,8 +342,14 @@ private fun CompassRose(pose: CameraPose, modifier: Modifier) {
             val center = Offset(size.width / 2, size.height / 2)
             val r = radius.toPx()
             drawCircle(Color(0xFF376577), r, center, style = Stroke(1.dp.toPx()))
-            drawArc(Color(0x6069E3F5), selected * 45f - 135f, 90f, true,
+            if (selected == OfflineSector.ALL_DIRECTIONS) drawCircle(Color(0x6069E3F5), r, center)
+            else drawArc(Color(0x6069E3F5), selected * 45f - 135f, 90f, true,
                 center - Offset(r, r), androidx.compose.ui.geometry.Size(2 * r, 2 * r))
+        }
+        TextButton(enabled = enabled, onClick = { onSelect(OfflineSector.ALL_DIRECTIONS) },
+            contentPadding = PaddingValues(0.dp), modifier = Modifier.align(Alignment.Center).size(48.dp)) {
+            Text("360°", color = if (selected == OfflineSector.ALL_DIRECTIONS) Color.White else Color(0xFF69E3F5),
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         }
         labels.forEachIndexed { index, label ->
             TextButton(enabled = enabled, onClick = { onSelect(index) }, modifier = Modifier
@@ -356,4 +385,11 @@ private fun CompassRose(pose: CameraPose, modifier: Modifier) {
         onDispose { lifecycle.removeObserver(observer); manager.unregisterListener(listener) }
     }
     return amount
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 -> "%.2f Gio".format(bytes / (1024.0 * 1024 * 1024))
+    bytes >= 1024L * 1024 -> "%.1f Mio".format(bytes / (1024.0 * 1024))
+    bytes >= 1024 -> "%.1f Kio".format(bytes / 1024.0)
+    else -> "$bytes o"
 }

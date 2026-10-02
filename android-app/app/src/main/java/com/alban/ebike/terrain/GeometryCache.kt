@@ -6,8 +6,11 @@ import java.security.MessageDigest
 
 /** Versioned derived geometry; never includes the user's GPS track. All calls on worker threads. */
 class GeometryCache(private val directory: File) {
+    @Volatile var enabled = true
+    @Synchronized fun clearMemory() { memory.clear() }
     private val memory = LinkedHashMap<String, List<FloatArray>>(4, .75f, true)
     @Synchronized fun read(key: String): Pair<List<FloatArray>, String>? {
+        if (!enabled) return null
         memory[key]?.let { return it to "RAM" }
         val file = File(directory, "$key.bin")
         return runCatching {
@@ -28,6 +31,7 @@ class GeometryCache(private val directory: File) {
         }.getOrNull()
     }
     @Synchronized fun write(key: String, arrays: List<FloatArray>) {
+        if (!enabled) return
         remember(key, arrays)
         if (arrays.sumOf { it.size.toLong() * 4 } > MAX_ENTRY - 24) return
         runCatching {

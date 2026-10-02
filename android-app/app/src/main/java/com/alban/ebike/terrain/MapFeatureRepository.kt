@@ -16,11 +16,13 @@ import java.security.MessageDigest
 import kotlin.math.abs
 
 /** Cache-first OSM ways. Never blocks or replaces the IGN terrain. */
-class MapFeatureRepository(context: Context) {
+class MapFeatureRepository(context: Context, private val onBytes: (Int) -> Unit = {}) {
     @Volatile var pinWrites = false
     private val cache = File(context.filesDir, "map-features-v2")
     @Volatile private var memory: MapFeatureArea? = null
     @Volatile private var retryAt = 0L
+
+    fun clearMemory() { memory = null; retryAt = 0 }
 
     suspend fun load(terrain: TerrainGrid, progress: (String) -> Unit = {}): MapFeatureArea? {
         val sw = GeoFrame.coordinate(-terrain.halfSizeM, -terrain.halfSizeM, terrain.originLat, terrain.originLon)
@@ -155,6 +157,7 @@ class MapFeatureRepository(context: Context) {
                 while (true) {
                     val count = input.read(buffer); if (count < 0) break
                     check(output.size() + count <= MAX_BYTES) { "OSM response too large" }
+                    onBytes(count)
                     output.write(buffer, 0, count)
                 }
                 output.toByteArray()

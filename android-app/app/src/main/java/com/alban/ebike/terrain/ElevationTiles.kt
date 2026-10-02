@@ -72,6 +72,7 @@ class ElevationTileStore(private val directory: File) {
     private val memory = object : LinkedHashMap<ElevationTileKey, FloatArray>(128, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ElevationTileKey, FloatArray>?) = size > 128
     }
+    @Synchronized fun clearMemory() { memory.clear() }
     @Synchronized fun read(key: ElevationTileKey): FloatArray? {
         memory[key]?.let { return it }
         val file = File(directory, key.fileName)
