@@ -40,10 +40,10 @@ $release = Invoke-RestMethod "$api/$($release.id)" -Method Patch -Headers $heade
 $page = 1
 $oldAssets = @()
 do {
-    $batch = @(Invoke-RestMethod "$api`?per_page=100&page=$page" -Headers $headers)
+    $batch = Invoke-RestMethod "$api`?per_page=100&page=$page" -Headers $headers
     foreach ($entry in $batch) {
         if ($entry.id -eq $release.id -or $entry.draft) { continue }
-        $oldAssets += @($entry.assets | Where-Object { $_.name -match '^E-BikeCockpit-.*\.apk$' })
+        $oldAssets += @($entry.assets | Where-Object { $_.name -match '^E-Bike.*\.apk$' })
     }
     $page++
 } while ($batch.Count -eq 100)

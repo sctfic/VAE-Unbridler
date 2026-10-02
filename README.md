@@ -1,9 +1,9 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.8** — auteur **Lopez Alban**.
+Version Android **0.4.9** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
-Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.8](RELEASE_0.4.8.md).
+Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.9](RELEASE_0.4.9.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
