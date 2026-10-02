@@ -102,7 +102,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                     Text("●  ESP32", color = if (state.bluetoothReady) Cyan else Color.Gray,
                         fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
                 }
-                SettingsButton(circumferenceMm) { settingsOpen = true }
+                SettingsButton(circumferenceMm, state.bluetoothReady) { settingsOpen = true }
             }
             Column(Modifier.fillMaxWidth().weight(1f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
@@ -157,7 +157,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                         fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
                 }
                 Text("E-BikeCockpit", color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
-                SettingsButton(circumferenceMm) { settingsOpen = true }
+                SettingsButton(circumferenceMm, state.bluetoothReady) { settingsOpen = true }
             }
             Column(Modifier.fillMaxWidth().weight(.38f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
@@ -216,11 +216,11 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     }
 }
 
-@Composable private fun SettingsButton(circumferenceMm: Int, onClick: () -> Unit) {
+@Composable private fun SettingsButton(circumferenceMm: Int, bluetoothReady: Boolean, onClick: () -> Unit) {
     TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Setting", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, lineHeight = 15.sp)
-            Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp, lineHeight = 13.sp)
+            if (bluetoothReady) Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp, lineHeight = 13.sp)
         }
     }
 }
@@ -265,6 +265,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     val animatedSpeed by animateFloatAsState(readout.speedKmh ?: 0f,
         if (readout.historical) snap() else tween(420), label = "speed")
     val speed = if (readout.historical) readout.speedKmh ?: 0f else animatedSpeed
+    val maxSpeedKmh = if (state.bluetoothReady) 60f else 120f
     BoxWithConstraints(modifier) {
         val numberSize = min(94f, maxHeight.value * .34f).coerceAtLeast(40f).sp
         Canvas(Modifier.fillMaxSize()) {
@@ -276,7 +277,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             drawOval(accent.copy(alpha = .04f), Offset(center.x - radius, center.y + radius * .78f), Size(radius * 2, radius * .20f))
             for (width in listOf(25f, 16f, 10f)) drawArc(accent.copy(alpha = .055f), 135f, 270f, false, origin, diameter, style = Stroke(width.dp.toPx(), cap = StrokeCap.Round))
             drawArc(accent.copy(alpha = .35f), 135f, 270f, false, origin, diameter, style = Stroke(2.dp.toPx()))
-            drawArc(Brush.sweepGradient(listOf(accent, White, accent), center), 135f, (speed / 60).coerceIn(0f, 1f) * 270, false,
+            drawArc(Brush.sweepGradient(listOf(accent, White, accent), center), 135f, (speed / maxSpeedKmh).coerceIn(0f, 1f) * 270, false,
                 origin, diameter, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round))
             val inner = radius * .89f
             drawArc(accent.copy(alpha = .12f), 135f, 270f, false, center - Offset(inner, inner), Size(inner * 2, inner * 2), style = Stroke(1f))
@@ -308,10 +309,10 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text(readout.movingTimeMs?.let(::formatRideDuration) ?: "—",
                 color = White, fontSize = 28.sp, lineHeight = 29.sp, style = compactText,
                 fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-            Box(Modifier.height(12.dp)) {
+            Box(Modifier.height(24.dp)) {
                 if (readout.resting && readout.restTimeMs != null) Text(
                     "REPOS ${formatRideDuration(readout.restTimeMs)}", color = Muted,
-                    fontSize = 8.sp, lineHeight = 10.sp, style = compactText, maxLines = 1)
+                    fontSize = 16.sp, lineHeight = 20.sp, style = compactText, maxLines = 1)
             }
         }
         if (!readout.historical && state.bluetoothReady) {
