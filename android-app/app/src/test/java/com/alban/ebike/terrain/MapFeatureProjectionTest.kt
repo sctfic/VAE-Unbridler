@@ -38,6 +38,10 @@ class MapFeatureProjectionTest {
         }
         val overview = MapFeatureProjection.build(area, terrain, TerrainDetail.OVERVIEW)
         assertTrue(overview.roads.isNotEmpty()); assertTrue(overview.water.isNotEmpty())
+        for (i in overview.water.indices step 6) {
+            assertEquals(3f, overview.water[i + 2], .001f)
+            assertTrue(kotlin.math.abs(overview.water[i + 3] - overview.water[i]) <= 20.01f)
+        }
         val unavailable = terrain.copy(heights = FloatArray(25) { Float.NaN })
         assertTrue(MapFeatureProjection.build(area, unavailable, TerrainDetail.CLOSE).roads.isEmpty())
     }

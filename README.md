@@ -1,9 +1,9 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.11** — auteur **Lopez Alban**.
+Version Android **0.4.12** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
-Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.11](RELEASE_0.4.11.md).
+Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.12](RELEASE_0.4.12.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
@@ -138,3 +138,11 @@ Pendant les pauses d’au moins trois secondes, l’application analyse l’hist
 Les compteurs cumulés sont interpolés aux dates GPS, avec l’horloge monotone de l’ESP et une estimation du décalage de réception BLE. Le diviseur est la différence des compteurs (intervalles de tours), sans retirer encore un tick. Les fenêtres BLE de plus d’une seconde ne sont pas interpolées. La collecte reste en mémoire, limitée aux 20 000 derniers points GPS ; le meilleur segment déjà analysé est conservé jusqu’au reset trajet ou à la fin du processus.
 
 Si l’écart dépasse strictement 1 %, Setting pulse pendant la pause avec « calibration de roue ». Le menu affiche valeur actuelle, proposition, écart, distance et rectitude. Appliquer nécessite une pause et l’ESP connecté ; cela utilise la sauvegarde et l’envoi du périmètre existants. Aucune modification automatique. La précision GPS affichée est une estimation du fournisseur, pas une garantie d’exactitude du périmètre.
+
+### Profils par VAE
+
+Chaque ESP32 possède son profil local, identifié par son adresse Bluetooth. À la reconnexion, l’application restaure son périmètre de roue, le seuil du chronomètre, le nombre de points de pente, les calques et diagnostics, les fenêtres du profil et de la 3D, la métrique de couleur et les paramètres du préchargement. Le nom du VAE est modifiable dans Settings et les noms des VAE mémorisés y sont affichés.
+
+Pour un nouvel ESP, la première télémétrie fournit le périmètre initial : aucun réglage de roue d’un autre vélo n’est envoyé. Les anciens réglages d’affichage globaux sont repris uniquement pour le premier profil créé. Les suivants utilisent les valeurs par défaut. Les commandes de roue sont liées à l’adresse destinataire ; un changement de connexion invalide les commandes destinées à un autre ESP.
+
+Le dernier profil reste disponible hors connexion. Au changement de VAE, les données de calibration en cours sont réinitialisées pour éviter de mélanger les roues. Le cache cartographique reste partagé ; le mode Standard/Turbo continue de suivre l’état transmis par l’ESP. Un ESP dont l’adresse Bluetooth change apparaît comme un nouveau VAE.

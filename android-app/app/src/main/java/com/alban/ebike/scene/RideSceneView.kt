@@ -64,6 +64,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
         val now = SystemClock.uptimeMillis()
         queueEvent { sceneRenderer.orbit.movement(distanceM, now); sceneRenderer.grade = grade }
     }
+    fun framing(window: SceneWindow, moving: Boolean) { queueEvent { sceneRenderer.window = window; sceneRenderer.moving = moving } }
     fun selectPoint(point: WorldPoint?) { queueEvent { sceneRenderer.selectedPosition = point } }
     fun inspectTrack(enabled: Boolean) { queueEvent { sceneRenderer.inspection = enabled; sceneRenderer.orbit.automaticPaused = enabled } }
     fun selectedMarker() = sceneRenderer.selectedMarker
@@ -109,6 +110,8 @@ private class SceneRenderer : GLSurfaceView.Renderer {
     var grade = 0f
     var selectedPosition: WorldPoint? = null
     var inspection = false
+    var window = SceneWindow.ALL
+    var moving = false
     @Volatile var selectedMarker: ScreenPoint? = null
     private var pathCenter = WorldPoint(0.0, 0.0)
     private var fitCenter: WorldPoint? = null
@@ -153,7 +156,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             lightHandle = glGetAttribLocation(program, "a_light")
             colorHandle = glGetAttribLocation(program, "a_color")
             uniforms.clear()
-            listOf("u_center", "u_camera", "u_color", "u_points", "u_size", "u_lift", "u_tilt").forEach { uniforms[it] = glGetUniformLocation(program, it) }
+            listOf("u_center", "u_camera", "u_color", "u_points", "u_size", "u_lift", "u_tilt", "u_targetY", "u_sunlight").forEach { uniforms[it] = glGetUniformLocation(program, it) }
             val widths = FloatArray(2); glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, widths, 0); maxLineWidth = widths[1]
         } catch (error: Exception) { program = 0; Log.e("EBikeScene", "GL initialization failed", error) }
         glClearColor(.018f, .038f, .064f, 1f)
@@ -196,7 +199,9 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             }
         }
         val original = mesh ?: return
-        val scene = if (inspection) original.copy(center = pathCenter) else original
+        val currentPoint = original.frame.lastOrNull() ?: original.center
+        val scene = original.copy(center = TrackCamera.center(currentPoint, pathCenter, window, moving,
+            inspection || orbit.isManual(SystemClock.uptimeMillis())))
         if (fitCenter != scene.center) {
             framePoints = scene.frame.map { WorldPoint(it.east - scene.center.east,
                 it.north - scene.center.north, it.height - scene.center.height) }
@@ -206,14 +211,14 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         heading = orbit.advance(scene.heading, SystemClock.uptimeMillis(), grade)
         visiblePose = CameraPose(heading, orbit.tilt)
         if (!fittedHeading.isFinite() || abs(GeoFrame.angleDelta(fittedHeading, heading)) > .0001 || fittedAspect != aspect || fittedTilt != orbit.tilt) {
-            fit = TrackCamera.fit(framePoints, heading, aspect, orbit.tilt)
+            fit = TrackCamera.fit(framePoints, heading, aspect, orbit.tilt, TrackCamera.TARGET_Y)
             fittedHeading = heading; fittedAspect = aspect; fittedTilt = orbit.tilt
         }
         // Expand immediately to keep every point inside; ease in when the route becomes smaller.
         distance = if (fit > distance) fit else distance + (fit - distance) * .055
         selectedMarker = selectedPosition?.let { point ->
             TrackCamera.project(WorldPoint(point.east - scene.center.east, point.north - scene.center.north,
-                point.height - scene.center.height), heading, distance / orbit.zoom, aspect, orbit.tilt)
+                point.height - scene.center.height), heading, distance / orbit.zoom, aspect, orbit.tilt, TrackCamera.TARGET_Y)
         }?.takeIf { it.depth > .5 && it.x in -1.0..1.0 && it.y in -1.0..1.0 }
         visibleLabels = scene.parcelLabels.mapNotNull { label ->
             val p = label.point
@@ -224,11 +229,13 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             val depth = distance / orbit.zoom + forward * cos(orbit.tilt) - z * sin(orbit.tilt)
             if (depth <= max(.5, distance / orbit.zoom * .001)) return@mapNotNull null
             val sx = .5 + right * 1.9 / aspect / depth / 2
-            val sy = .5 - vertical * 1.9 / depth / 2
+            val sy = .5 - (vertical * 1.9 / depth + TrackCamera.TARGET_Y) / 2
             if (sx !in .02.. .98 || sy !in .12.. .87) null else
                 com.alban.ebike.terrain.ScreenLabel(label.text, sx.toFloat(), sy.toFloat())
         }.sortedBy { hypot(it.x - .5f, it.y - .5f) }.take(160)
         glUseProgram(program)
+        glUniform1f(uniforms.getValue("u_targetY"), TrackCamera.TARGET_Y.toFloat())
+        glUniform1f(uniforms.getValue("u_sunlight"), sunlight)
         glUniform3f(uniforms.getValue("u_center"), scene.center.east.toFloat(), scene.center.north.toFloat(), scene.center.height.toFloat())
         glUniform4f(uniforms.getValue("u_camera"), sin(heading).toFloat(), cos(heading).toFloat(), (distance / orbit.zoom).toFloat(), aspect.toFloat())
         glUniform2f(uniforms.getValue("u_tilt"), sin(orbit.tilt).toFloat(), cos(orbit.tilt).toFloat())
@@ -266,7 +273,10 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         draw(1, GL_LINES, floatArrayOf(.10f, .42f, .50f, .34f))
         draw(2, GL_LINES, floatArrayOf(.18f, .71f, .76f, .65f))
         draw(6, GL_LINES, floatArrayOf(.72f, .80f, .84f, .8f), 2f)
-        draw(7, GL_LINES, floatArrayOf(.12f, .55f, 1f, .95f), 3f)
+        // Cartographic overlay: draped water must remain readable at regional scales behind relief.
+        glDisable(GL_DEPTH_TEST)
+        draw(7, GL_LINES, floatArrayOf(.12f, .72f, 1f, 1f), 4f, 1f)
+        glEnable(GL_DEPTH_TEST)
         draw(8, GL_LINES, floatArrayOf(.78f, .66f, .38f, .75f), 1f)
         draw(9, GL_LINES, floatArrayOf(.62f, .72f, .86f, .65f), 1f)
         draw(10, GL_LINES, floatArrayOf(.95f, .65f, .34f, .8f), 1f)
@@ -297,6 +307,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             uniform vec2 u_tilt;
             uniform float u_size;
             uniform float u_lift;
+            uniform float u_targetY;
             varying float v_fog;
             varying float v_height;
             varying float v_light;
@@ -308,7 +319,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
                 float vertical = forward * u_tilt.x + p.z * u_tilt.y;
                 float depth = u_camera.z + forward * u_tilt.y - p.z * u_tilt.x;
                 float nearPlane = max(0.5, u_camera.z * 0.001);
-                gl_Position = vec4(right * 1.9 / u_camera.w, vertical * 1.9,
+                gl_Position = vec4(right * 1.9 / u_camera.w, vertical * 1.9 + u_targetY * depth,
                     depth - 2.0 * nearPlane, depth);
                 gl_PointSize = u_size;
                 v_fog = clamp(depth / (u_camera.z * 3.0), 0.0, 0.82);
@@ -321,6 +332,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             precision mediump float;
             uniform vec4 u_color;
             uniform float u_points;
+            uniform float u_sunlight;
             varying float v_fog;
             varying float v_height;
             varying float v_light;
@@ -333,7 +345,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
                     alpha *= 1.0 - smoothstep(0.25, 0.5, d);
                 }
                 float light = (0.86 + 0.14 * sin(v_height * 0.03)) * v_light;
-                gl_FragColor = vec4(mix(u_color.rgb * v_color * light, vec3(0.018, 0.038, 0.064), v_fog), alpha);
+                gl_FragColor = vec4(mix(u_color.rgb * v_color * light, vec3(0.018, 0.038, 0.064), v_fog * (1.0 - u_sunlight * 0.85)), alpha);
             }
         """
     }

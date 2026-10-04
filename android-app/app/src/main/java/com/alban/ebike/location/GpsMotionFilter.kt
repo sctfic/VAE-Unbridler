@@ -77,6 +77,9 @@ class GpsMotionFilter {
         confirmations++
         val origin = anchor!!
         val displacement = distanceM(origin, fix)
+        // A precise native speed can establish movement without waiting for a large position baseline.
+        if (!moving && confirmations >= 2 && fix.timeMs - origin.timeMs >= 500 &&
+            fix.accuracyM <= 10f && error <= .5f && speed >= 2f && displacement > 3.0) moving = true
         if (!moving && confirmations >= 3 && fix.timeMs - origin.timeMs >= 1500 &&
             displacement > max(3.0, (origin.accuracyM + fix.accuracyM).toDouble())) moving = true
         if (!moving) return Result(0f, false, false, "confirmation $confirmations/3 · déplacement ${displacement.toInt()}m")

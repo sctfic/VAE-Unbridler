@@ -30,6 +30,34 @@ class SceneGeometryTest {
             }
         }
     }
+    @Test fun shiftedCameraAndModePivots() {
+        val current = WorldPoint(100.0, 100.0)
+        val center = WorldPoint(10.0, 20.0)
+        for (window in SceneWindow.entries) {
+            assertEquals(current, TrackCamera.center(current, center, window, true, false))
+            assertEquals(if (window == SceneWindow.ALL) center else current,
+                TrackCamera.center(current, center, window, true, true))
+        }
+        assertEquals(1.0 / 3.0, TrackCamera.project(WorldPoint(0.0, 0.0), 0.0, 500.0, 1.0,
+            targetY = TrackCamera.TARGET_Y).y, .0001)
+        val route = listOf(WorldPoint(300.0, 700.0, 80.0), WorldPoint(-300.0, -800.0))
+        for (aspect in listOf(.45, 2.4)) for (heading in listOf(0.0, 1.0, 3.0)) {
+            val distance = TrackCamera.fit(route, heading, aspect, targetY = TrackCamera.TARGET_Y)
+            route.forEach { assertTrue(abs(TrackCamera.project(it, heading, distance, aspect,
+                targetY = TrackCamera.TARGET_Y).y) <= .821) }
+        }
+    }
+
+    @Test fun restSamplesSurviveWithoutDistanceProgress() {
+        val history = VisibleTrack()
+        val start = TrackPoint(48.0, 2.0, 100f, 0L, 10.0)
+        history.add(start)
+        repeat(10) { history.add(start.copy(timeMs = it * 1000L + 1000, resting = true)) }
+        val result = history.add(start.copy(timeMs = 11000, resting = false))
+        assertEquals(12, result.size)
+        assertEquals(10, result.count { it.resting })
+    }
+
     @Test fun longitudeScaleIsCorrectAndDatelineDoesNotJump() {
         val east = GeoFrame.local(60.0, .001, 60.0, 0.0)
         val north = GeoFrame.local(60.001, 0.0, 60.0, 0.0)

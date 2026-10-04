@@ -28,9 +28,10 @@ class RideLocationEngine(context: Context) {
     private val locationManager = appContext.getSystemService(LocationManager::class.java)
     init {
         GpsDebugLog.initialize(appContext)
-        RideStateStore.movingThresholdKmh = appContext.getSharedPreferences("ride-options", Context.MODE_PRIVATE)
+        com.alban.ebike.data.BikeProfiles.initialize(appContext)
+        RideStateStore.movingThresholdKmh = com.alban.ebike.data.BikeProfiles.preferences("ride-options")
             .getFloat("moving-threshold", 4f).coerceIn(0f, 20f)
-        RideStateStore.gradePointCount = appContext.getSharedPreferences("ride-options", Context.MODE_PRIVATE)
+        RideStateStore.gradePointCount = com.alban.ebike.data.BikeProfiles.preferences("ride-options")
             .getInt("grade-points", 10).coerceIn(3, 30)
     }
     private val handler = Handler(Looper.getMainLooper())
@@ -75,13 +76,15 @@ class RideLocationEngine(context: Context) {
         handler.removeCallbacks(staleCheck)
         handler.post(staleCheck)
         RideStateStore.setGpsStatus("Recherche GPS · sortir à ciel ouvert")
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 500)
             .setMinUpdateIntervalMillis(500)
+            .setMaxUpdateAgeMillis(2000)
+            .setMaxUpdateDelayMillis(0)
             .setWaitForAccurateLocation(false)
             .build()
         try {
             client.requestLocationUpdates(request, callback, Looper.getMainLooper())
-                .addOnSuccessListener { GpsDebugLog.record("SUBSCRIBED high accuracy interval=1000ms") }
+                .addOnSuccessListener { GpsDebugLog.record("SUBSCRIBED high accuracy interval=500ms") }
                 .addOnFailureListener {
                     started = false
                     RideStateStore.setGpsStatus("GPS indisponible · vérifier la localisation")

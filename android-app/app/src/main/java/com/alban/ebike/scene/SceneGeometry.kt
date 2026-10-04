@@ -35,17 +35,20 @@ object GeoFrame {
 object TrackCamera {
     const val TILT = 0.8726646259971648 // 50 degrees above the ground
     const val FOCAL = 1.9
+    const val TARGET_Y = 1.0 / 3.0
+    fun center(current: WorldPoint, barycenter: WorldPoint, window: SceneWindow, moving: Boolean, manual: Boolean) =
+        if (window == SceneWindow.ALL && (manual || !moving)) barycenter else current
     fun barycenter(points: List<WorldPoint>): WorldPoint = if (points.isEmpty()) WorldPoint(0.0, 0.0) else
         WorldPoint(points.sumOf { it.east } / points.size, points.sumOf { it.north } / points.size,
             points.sumOf { it.height } / points.size)
-    fun project(point: WorldPoint, heading: Double, distance: Double, aspect: Double, tilt: Double = TILT): ScreenPoint {
+    fun project(point: WorldPoint, heading: Double, distance: Double, aspect: Double, tilt: Double = TILT, targetY: Double = 0.0): ScreenPoint {
         val right = point.east * cos(heading) - point.north * sin(heading)
         val forward = point.east * sin(heading) + point.north * cos(heading)
         val vertical = forward * sin(tilt) + point.height * cos(tilt)
         val depth = distance + forward * cos(tilt) - point.height * sin(tilt)
-        return ScreenPoint(right * FOCAL / aspect / depth, vertical * FOCAL / depth, depth)
+        return ScreenPoint(right * FOCAL / aspect / depth, vertical * FOCAL / depth + targetY, depth)
     }
-    fun fit(points: List<WorldPoint>, heading: Double, aspect: Double, tilt: Double = TILT): Double {
+    fun fit(points: List<WorldPoint>, heading: Double, aspect: Double, tilt: Double = TILT, targetY: Double = 0.0): Double {
         var distance = 180.0
         val s = sin(heading); val c = cos(heading)
         for (point in points) {
@@ -54,7 +57,7 @@ object TrackCamera {
             val vertical = forward * sin(tilt) + point.height * cos(tilt)
             val offset = forward * cos(tilt) - point.height * sin(tilt)
             distance = max(distance, maxOf(5.01, abs(right) * FOCAL / aspect.coerceAtLeast(.2) / .80,
-                abs(vertical) * FOCAL / .64) - offset)
+                abs(vertical) * FOCAL / (if (targetY == 0.0) .64 else if (vertical >= 0) .82 - targetY else .82 + targetY)) - offset)
         }
         return distance
     }
@@ -83,8 +86,9 @@ class VisibleTrack {
     fun clear() { points.clear() }
     fun add(point: TrackPoint): List<TrackPoint> {
         val last = points.lastOrNull()
-        if (last == null || point.segmentStart || point.distanceM - last.distanceM >= 2) {
-            if (points.size >= 2 && !point.segmentStart && !points.last().segmentStart) {
+        if (last == null || point.segmentStart || point.distanceM - last.distanceM >= 2 || point.resting || last.resting) {
+            if (points.size >= 2 && !point.segmentStart && !points.last().segmentStart &&
+                !point.resting && !points.last().resting && !points[points.size - 2].resting) {
                 val a = points[points.size - 2]
                 val b = points.last()
                 val ab = GeoFrame.local(b.latitude, b.longitude, a.latitude, a.longitude)

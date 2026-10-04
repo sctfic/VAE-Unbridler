@@ -27,6 +27,15 @@ object RideStateStore {
     private val regression = com.alban.ebike.location.PositionSpeedRegression()
     private val movingTimer = MovingTimer()
     private val calibration = WheelCalibration()
+    private var calibrationBike: String? = null
+
+    @Synchronized fun activateBike(id: String) {
+        if (calibrationBike != id) {
+            calibration.reset()
+            _state.update { it.copy(calibration = null) }
+            calibrationBike = id
+        }
+    }
     private val elevationGain = ElevationGain()
     @Volatile var movingThresholdKmh = 4f
     @Volatile var gradePointCount = DistanceAltitudeProfile.DEFAULT_GRADE_POINTS
@@ -106,6 +115,7 @@ object RideStateStore {
     }
 
     fun ingestTelemetry(telemetry: BikeTelemetry) {
+        RideTrackJournal.recordTelemetry(telemetry)
         calibration.telemetry(SystemClock.elapsedRealtime(), telemetry.uptimeMs, telemetry.wheelRevolutions)
         _state.update { it.copy(
             speedMode = telemetry.speedMode,
@@ -153,7 +163,20 @@ object RideStateStore {
         if (motion.reliable) lastReliableSpeedMs = fixTimeMs
         _state.update { it.copy(gpsSpeedKmh = motion.speedKmh, gpsSpeedValid = motion.reliable, gpsSpeedApproximate = approximate) }
         expireGpsSpeed(nowMs)
-        if (!decision.accepted) return
+        if (!decision.accepted) {
+            val snapshot = _state.value
+            RideTrackJournal.record(TrackPoint(location.latitude, location.longitude,
+                if (location.hasAltitude()) location.altitude.toFloat() else 0f, location.time,
+                distanceM, true, snapshot.displayedSpeedKmh, snapshot.inclinePercent.takeIf { snapshot.inclineValid },
+                altitudeValid = location.hasAltitude(), movingTimeMs = snapshot.movingTimeMs,
+                restTimeMs = snapshot.restTimeMs, resting = snapshot.resting, elevationGainM = snapshot.elevationGainM,
+                speedSource = snapshot.displayedSpeedSource, accuracyM = fix.accuracyM,
+                rawAltitudeM = location.altitude.takeIf { location.hasAltitude() },
+                rawSpeedKmh = location.speed.takeIf { location.hasSpeed() }?.times(3.6f), positionValid = false,
+                wheelSpeedKmh = snapshot.wheelSpeedKmh.takeIf { snapshot.bluetoothReady },
+                motorSpeedKmh = snapshot.motorSpeedKmh.takeIf { snapshot.bluetoothReady }))
+            return
+        }
         val time = location.time.takeIf { it > 0 } ?: System.currentTimeMillis()
         distanceM += decision.distanceM
 
@@ -177,11 +200,13 @@ object RideStateStore {
             distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, inclination, hasAltitude,
             movingTimeMs = movingTimer.milliseconds, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting, elevationGainM = elevationGain.metres,
             speedApproximate = snapshot.gpsSpeedValid && snapshot.gpsSpeedApproximate,
-            speedSource = snapshot.displayedSpeedSource)
-        if (decision.append) {
-            trackPoints = track.add(point)
-            RideTrackJournal.record(point)
-        }
+            speedSource = snapshot.displayedSpeedSource, accuracyM = fix.accuracyM,
+            rawAltitudeM = location.altitude.takeIf { location.hasAltitude() },
+            rawSpeedKmh = location.speed.takeIf { location.hasSpeed() }?.times(3.6f),
+            wheelSpeedKmh = snapshot.wheelSpeedKmh.takeIf { snapshot.bluetoothReady },
+            motorSpeedKmh = snapshot.motorSpeedKmh.takeIf { snapshot.bluetoothReady })
+        trackPoints = track.add(point)
+        RideTrackJournal.record(point)
         _state.update { it.copy(
             gpsStatus = diagnostic,
             gpsSpeedKmh = motion.speedKmh,

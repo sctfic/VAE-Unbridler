@@ -25,7 +25,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.flow.first
 import androidx.core.content.ContextCompat
 import android.Manifest
 
@@ -36,6 +35,8 @@ class RideService : Service() {
     private lateinit var locationEngine: RideLocationEngine
     private lateinit var settings: BikeSettingsStore
     private lateinit var wakeLock: PowerManager.WakeLock
+    @Volatile private var connectedBike: String? = null
+    private var wheelInitialized = false
     private var shuttingDown = false
     private var notificationStarted = false
     private var dashboardOpenedForConnection = false
@@ -67,17 +68,36 @@ class RideService : Service() {
         }
         gattClient = BikeGattClient(
             context = this,
-            onReady = {
+            onReady = { address ->
                 if (associationPending || shuttingDown) return@BikeGattClient
-                RideStateStore.setBluetoothReady(true)
+                connectedBike = address
+                wheelInitialized = false
+                RideStateStore.setBluetoothReady(false)
+                RideStateStore.activateBike(address)
+                com.alban.ebike.data.BikeProfiles.activate(address)
+                val options = com.alban.ebike.data.BikeProfiles.preferences("ride-options")
+                RideStateStore.movingThresholdKmh = options.getFloat("moving-threshold", 4f)
+                RideStateStore.gradePointCount = options.getInt("grade-points", 10)
+                RideStateStore.setBluetoothReady(false)
                 acquireWakeLock()
-                serviceScope.launch { gattClient.setWheelCircumference(settings.circumferenceMm.first()) }
                 updateNotification(statusMessage())
                 openDashboard()
             },
-            onTelemetry = RideStateStore::ingestTelemetry,
+            onTelemetry = { address, telemetry ->
+                if (connectedBike == address && !shuttingDown) {
+                    if (!wheelInitialized && telemetry.circumferenceMm in 1000..4000) {
+                        val saved = settings.initializeWheel(telemetry.circumferenceMm, address)
+                        wheelInitialized = true
+                        if (saved != telemetry.circumferenceMm) gattClient.setWheelCircumference(saved, expectedAddress = address)
+                    }
+                    RideStateStore.setBluetoothReady(wheelInitialized)
+                    RideStateStore.ingestTelemetry(telemetry)
+                }
+            },
             onStatus = RideStateStore::setBluetoothStatus,
             onDisconnected = {
+                connectedBike = null
+                wheelInitialized = false
                 BikeArrivalNotification.dismiss(this)
                 RideStateStore.setBluetoothReady(false)
                 if (!locationStarted) releaseWakeLock()
@@ -128,12 +148,13 @@ class RideService : Service() {
             ACTION_SET_CIRCUMFERENCE -> {
                 intent.getIntExtra(EXTRA_CIRCUMFERENCE_MM, -1)
                     .takeIf { it in 1000..4000 }
-                    ?.let { gattClient.setWheelCircumference(it) }
+                    ?.let { gattClient.setWheelCircumference(it, expectedAddress = intent.getStringExtra(EXTRA_BIKE_ID)) }
             }
             ACTION_TOGGLE_MODE -> {
                 val state = RideStateStore.state.value
-                if (state.bluetoothReady && state.modeSupported) serviceScope.launch {
-                    gattClient.setWheelCircumference(settings.circumferenceMm.first(), !state.speedMode)
+                val bike = intent.getStringExtra(EXTRA_BIKE_ID)
+                if (state.bluetoothReady && state.modeSupported && bike == connectedBike) {
+                    gattClient.setWheelCircumference(settings.currentCircumference(bike!!), !state.speedMode, bike)
                 }
             }
             else -> Unit
@@ -156,6 +177,7 @@ class RideService : Service() {
     private fun shutdown() {
         if (shuttingDown) return
         shuttingDown = true
+        connectedBike = null
         notificationStarted = false
         BikeArrivalNotification.dismiss(this)
         gattClient.stop()
@@ -253,14 +275,15 @@ class RideService : Service() {
 
     companion object {
         private const val ACTION_TOGGLE_MODE = "com.alban.ebike.TOGGLE_MODE"
-        fun toggleMode(context: Context) {
+        fun toggleMode(context: Context, bikeId: String = com.alban.ebike.data.BikeProfiles.activeId.value) {
             ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)
-                .setAction(ACTION_TOGGLE_MODE).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
+                .setAction(ACTION_TOGGLE_MODE).putExtra(EXTRA_BIKE_ID, bikeId).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
         }
         private const val CHANNEL_ID = "ebike_ride"
         private const val NOTIFICATION_ID = 41
         private const val ACTION_SET_CIRCUMFERENCE = "com.alban.ebike.SET_CIRCUMFERENCE"
         private const val EXTRA_CIRCUMFERENCE_MM = "circumference_mm"
+        private const val EXTRA_BIKE_ID = "bike_profile"
         private const val EXTRA_VISIBLE = "visible_activity"
         private const val ACTION_STOP = "com.alban.ebike.STOP"
         private const val ACTION_ASSOCIATE = "com.alban.ebike.ASSOCIATE"
@@ -282,9 +305,10 @@ class RideService : Service() {
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
 
-        fun setWheelCircumference(context: Context, circumferenceMm: Int) {
+        fun setWheelCircumference(context: Context, circumferenceMm: Int, bikeId: String = com.alban.ebike.data.BikeProfiles.activeId.value) {
             val intent = Intent(context, RideService::class.java).apply {
                 action = ACTION_SET_CIRCUMFERENCE
+                putExtra(EXTRA_BIKE_ID, bikeId)
                 putExtra(EXTRA_VISIBLE, context is android.app.Activity)
                 putExtra(EXTRA_CIRCUMFERENCE_MM, circumferenceMm)
             }

@@ -49,14 +49,15 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     val cacheBytes by terrainModel.cacheBytes.collectAsState()
     val cacheClearing by terrainModel.cacheClearing.collectAsState()
     var confirmClearCache by remember { mutableStateOf(false) }
+    val preferences = remember { com.alban.ebike.data.BikeProfiles.preferences("scene-layers") }
     var optionsTab by rememberSaveable { mutableIntStateOf(0) }
-    var radiusKm by rememberSaveable { mutableFloatStateOf(5f) }
-    var direction by rememberSaveable { mutableIntStateOf(0) }
+    var radiusKm by rememberSaveable { mutableFloatStateOf(preferences.getFloat("offline-radius", 5f)) }
+    var direction by rememberSaveable { mutableIntStateOf(preferences.getInt("offline-direction", 0)) }
+    LaunchedEffect(radiusKm, direction) { preferences.edit().putFloat("offline-radius", radiusKm).putInt("offline-direction", direction).apply() }
     val diagnostics = terrainModel.diagnostics
     val steps by diagnostics.steps.collectAsState()
     var debugNow by remember { mutableLongStateOf(LoadDiagnostics.now()) }
     val geometryCache = terrainModel.geometryCache
-    val preferences = remember { context.getSharedPreferences("scene-layers", android.content.Context.MODE_PRIVATE) }
     var optionsOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(optionsOpen, optionsTab) {
         if (!optionsOpen) terrainModel.resumeCacheLoads()
@@ -79,8 +80,10 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     val report by rememberUpdatedState(onStatus)
     val reset by rememberUpdatedState(onReset)
     val detail = TerrainDetail.forWindow(window)
-    val selectedTrack = remember(state.track, window, selectedPoint != null) {
-        if (selectedPoint != null) state.track else TrackWindow.select(state.track, window)
+    val selectedTrack = remember(state.track, state.position, window) {
+        val position = state.position
+        val points = if (position != null && position.timeMs > (state.track.lastOrNull()?.timeMs ?: -1L)) state.track + position else state.track
+        TrackWindow.select(points, window)
     }
     SideEffect {
         view.onFrameReady = { milliseconds ->
@@ -89,6 +92,7 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         }
         view.onInteractionChanged = onSceneTouch
         view.inspectTrack(profileDragging || selectedPoint != null)
+        view.framing(window, !state.resting)
         view.onResetRequested = { reset() }
         view.onOptionsRequested = { optionsOpen = true }
         view.onViewModeRequested = { onWindowChange(window.next()) }
@@ -155,12 +159,12 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         if (!active) return@LaunchedEffect
         while (isActive) { cameraPose = view.cameraPose(); selectionMarker = view.selectedMarker(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(33) }
     }
-    LaunchedEffect(active, mapArea, terrain, detail) {
+    LaunchedEffect(active, mapArea, terrain, detail, window) {
         if (!active) return@LaunchedEffect
         diagnostics.begin("OBJ", "Projection objets · recherche cache")
         mapMesh = withContext(Dispatchers.IO) {
             val area = mapArea; val grid = terrain
-            val key = if (area != null && grid?.real == true) GeometryCache.key(grid, detail, area) else null
+            val key = if (area != null && grid?.real == true) GeometryCache.key(grid, detail, area) + "-water-v2" else null
             val cached = key?.let { geometryCache.read(it) }?.takeIf { it.first.size == 4 }
             if (cached != null) {
                 diagnostics.report("OBJ", "Objets projetés · cache ${cached.second}")
@@ -344,7 +348,7 @@ private fun CompassRose(pose: CameraPose, modifier: Modifier) {
 
 @Composable private fun DirectionPicker(selected: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
     val labels = listOf("N", "NE", "E", "SE", "S", "SO", "O", "NO")
-    BoxWithConstraints(Modifier.fillMaxWidth().height(180.dp)) {
+    Box(Modifier.fillMaxWidth().height(180.dp)) {
         val radius = 64.dp
         Canvas(Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2, size.height / 2)
@@ -379,7 +383,7 @@ private fun CompassRose(pose: CameraPose, modifier: Modifier) {
         val listener = object : android.hardware.SensorEventListener {
             override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
             override fun onSensorChanged(event: android.hardware.SensorEvent) {
-                val target = ((event.values[0] - 1000f) / 9000f).coerceIn(0f, 1f)
+                val target = ((event.values[0] - 1500f) / 6500f).coerceIn(0f, 1f)
                 amount += (target - amount) * .2f
             }
         }

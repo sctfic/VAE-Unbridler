@@ -18,7 +18,14 @@ data class TrackPoint(
     val elevationGainM: Float? = null,
     val speedApproximate: Boolean = false,
     val speedSource: String? = null,
+    val accuracyM: Float? = null,
+    val rawAltitudeM: Double? = null,
+    val rawSpeedKmh: Float? = null,
+    val positionValid: Boolean = true,
+    val wheelSpeedKmh: Float? = null,
+    val motorSpeedKmh: Float? = null,
 )
+
 
 data class RidePause(val start: TrackPoint, val end: TrackPoint? = null)
 

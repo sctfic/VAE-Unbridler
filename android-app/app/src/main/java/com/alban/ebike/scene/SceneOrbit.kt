@@ -17,6 +17,7 @@ class SceneOrbit {
     private var progressDistance = 0.0
     private var progressAt = -1L
 
+    fun isManual(now: Long) = touching || releasedAt != Long.MIN_VALUE && now - releasedAt < 3000
     fun touch() { touching = true }
     fun drag(radians: Double) { heading = wrap(heading + radians) }
     fun incline(radians: Double) { tilt = (tilt + radians).coerceIn(Math.toRadians(20.0), Math.toRadians(80.0)) }
@@ -31,9 +32,9 @@ class SceneOrbit {
         frameAt = now
         if (automaticPaused || touching || releasedAt != Long.MIN_VALUE && now - releasedAt < 3000) return heading
         val response = 1 - exp(-dt / .7)
-        val baseTilt = if (progressAt >= 0 && now - progressAt < 5000) Math.toRadians(38.0) else TrackCamera.TILT
+        val baseTilt = if (progressAt >= 0 && now - progressAt < 5000) Math.toRadians(28.0) else TrackCamera.TILT
         val targetTilt = (baseTilt - atan(grade.toDouble() / 100) * 1.5)
-            .coerceIn(Math.toRadians(30.0), Math.toRadians(70.0))
+            .coerceIn(Math.toRadians(22.0), Math.toRadians(70.0))
         tilt += (targetTilt - tilt) * response
         zoom += (1.0 - zoom) * response
         if (progressAt < 0 || now - progressAt >= 5000) heading = wrap(heading + dt * Math.toRadians(4.0))

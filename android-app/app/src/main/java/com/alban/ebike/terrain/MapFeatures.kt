@@ -38,7 +38,7 @@ object MapFeatureProjection {
         val roads = ArrayList<Float>(); val water = ArrayList<Float>()
         val paths = ArrayList<Float>(); val buildings = ArrayList<Float>()
         fun result() = MapFeatureMesh(roads.toFloatArray(), water.toFloatArray(), paths.toFloatArray(), buildings.toFloatArray())
-        val spacing = (terrain.halfSizeM * 2 / (terrain.size - 1) / 2).coerceIn(3.0, 80.0)
+        val spacing = (terrain.halfSizeM * 2 / (terrain.size - 1) / 2).coerceIn(3.0, 20.0)
         fun add(target: MutableList<Float>, p: WorldPoint) {
             target.add(p.east.toFloat()); target.add(p.north.toFloat()); target.add(p.height.toFloat())
         }
@@ -49,14 +49,14 @@ object MapFeatureProjection {
                 val segment = clip(GeoFrame.local(a.latitude, a.longitude, terrain.originLat, terrain.originLon),
                     GeoFrame.local(b.latitude, b.longitude, terrain.originLat, terrain.originLon), terrain.halfSizeM) ?: continue
                 val start = segment.first; val end = segment.second
-                val count = ceil(hypot(end.east - start.east, end.north - start.north) / spacing).toInt().coerceIn(1, 1024)
+                val count = ceil(hypot(end.east - start.east, end.north - start.north) / spacing).toInt().coerceIn(1, 4096)
                 var previous: WorldPoint? = null
                 for (i in 0..count) {
                     val t = i.toDouble() / count
                     val east = start.east + (end.east - start.east) * t
                     val north = start.north + (end.north - start.north) * t
                     val elevation = terrain.sampleSmooth(east, north)
-                    val point = elevation?.let { WorldPoint(east, north, (it - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 1.2) }
+                    val point = elevation?.let { WorldPoint(east, north, (it - base) * RideSceneMesh.VERTICAL_EXAGGERATION + if (feature.water) 3.0 else 1.2) }
                     if (point != null && previous != null) { add(target, previous); add(target, point) }
                     previous = point
                 }

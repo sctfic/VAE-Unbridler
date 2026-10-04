@@ -1,24 +1,22 @@
 package com.alban.ebike.data
 
 import android.content.Context
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.alban.ebike.model.BleProtocol
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore by preferencesDataStore(name = "ebike_settings")
-
-class BikeSettingsStore(private val context: Context) {
-    private val circumferenceKey = intPreferencesKey("circumference_mm")
-
-    val circumferenceMm: Flow<Int> = context.dataStore.data.map { preferences ->
-        preferences[circumferenceKey] ?: BleProtocol.defaultCircumferenceMm
+class BikeSettingsStore internal constructor() {
+    constructor(context: Context) : this() { BikeProfiles.initialize(context) }
+    val circumferenceMm = BikeProfiles.revision.map { currentCircumference() }
+    fun currentCircumference(id: String = BikeProfiles.activeId.value) =
+        BikeProfiles.preferences("settings", id).getInt("circumference_mm", BleProtocol.defaultCircumferenceMm)
+    fun initializeWheel(reported: Int, id: String): Int {
+        val preferences = BikeProfiles.preferences("settings", id)
+        if (!preferences.contains("circumference_mm") && reported in 1000..4000) setCircumferenceMm(reported, id)
+        return currentCircumference(id)
     }
-
-    suspend fun setCircumferenceMm(value: Int) {
-        require(value in 1000..4000) { "Wheel circumference must be between 1000 and 4000 mm" }
-        context.dataStore.edit { it[circumferenceKey] = value }
+    fun setCircumferenceMm(value: Int, id: String = BikeProfiles.activeId.value) {
+        require(value in 1000..4000)
+        BikeProfiles.preferences("settings", id).edit().putInt("circumference_mm", value).apply()
+        BikeProfiles.changed()
     }
 }

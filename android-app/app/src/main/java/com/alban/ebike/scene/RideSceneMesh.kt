@@ -117,15 +117,10 @@ object RideSceneMesh {
         val range = RouteColors.range(track, metric)
         positions.zipWithNext().forEachIndexed { i, (a, b) ->
             if (!track[i + 1].segmentStart) {
-                val ca = RouteColors.color(track[i], metric, range)
-                val cb = RouteColors.color(track[i + 1], metric, range)
-                fun point(t: Float) = WorldPoint(a.east + (b.east - a.east) * t,
-                    a.north + (b.north - a.north) * t, a.height + (b.height - a.height) * t)
-                com.alban.ebike.model.restSections(track[i].distanceM, track[i + 1].distanceM, pauses).forEach { (from, to, resting) ->
-                    line(route, point(from), point(to))
-                    for (t in listOf(from, to)) colors.addAll(if (resting) listOf(1f, 0f, 1f)
-                        else (0..2).map { ca[it] + (cb[it] - ca[it]) * t })
-                }
+                line(route, a, b)
+                val resting = track[i].resting
+                colors.addAll(if (resting) listOf(1f, 0f, 1f) else RouteColors.color(track[i], metric, range).toList())
+                colors.addAll(if (resting) listOf(1f, 0f, 1f) else RouteColors.color(track[i + 1], metric, range).toList())
             }
         }
         val frame = positions.ifEmpty { listOf(WorldPoint(-45.0, -45.0), WorldPoint(45.0, 45.0)) }

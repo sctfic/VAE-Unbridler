@@ -18,6 +18,16 @@ class RouteColorsTest {
         }
     }
 
+    @Test fun restColorUsesPointStateEvenWhenDistanceDoesNotAdvance() {
+        val points = listOf(point(0), point(1).copy(resting = true),
+            point(2).copy(distanceM = 12.0, resting = true), point(3).copy(distanceM = 13.0))
+        for (metric in RouteMetric.entries) {
+            val colors = RideSceneMesh.build(points, null, false, 0.0, metric).routeColors
+            assertArrayEquals(floatArrayOf(1f, 0f, 1f, 1f, 0f, 1f), colors.copyOfRange(6, 12), 0f)
+            assertArrayEquals(floatArrayOf(1f, 0f, 1f, 1f, 0f, 1f), colors.copyOfRange(12, 18), 0f)
+        }
+    }
+
     @Test fun missingDataIsNeutralNotZeroAndValuesSaturateAtLegendLimits() {
         val p = point(0).copy(speedKmh = null, altitudeValid = false, gradePercent = null)
         for (metric in RouteMetric.entries) assertArrayEquals(floatArrayOf(.45f, .50f, .55f),

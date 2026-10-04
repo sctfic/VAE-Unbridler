@@ -28,8 +28,8 @@ import java.util.UUID
 
 class BikeGattClient(
     context: Context,
-    private val onReady: () -> Unit,
-    private val onTelemetry: (BikeTelemetry) -> Unit,
+    private val onReady: (String) -> Unit,
+    private val onTelemetry: (String, BikeTelemetry) -> Unit,
     private val onDisconnected: () -> Unit,
     private val onStatus: (String) -> Unit,
 ) {
@@ -73,10 +73,11 @@ class BikeGattClient(
     }
 
     @SuppressLint("MissingPermission")
-    fun setWheelCircumference(circumferenceMm: Int, speedMode: Boolean? = null) {
+    fun setWheelCircumference(circumferenceMm: Int, speedMode: Boolean? = null, expectedAddress: String? = null) {
         handler.post {
             val characteristic = configCharacteristic ?: return@post
             val currentGatt = gatt ?: return@post
+            if (expectedAddress == null || !currentGatt.device.address.equals(expectedAddress, ignoreCase = true)) return@post
             if (!isReady || configWritePending) {
                 status("Réglage occupé · réessayez")
                 return@post
@@ -178,12 +179,13 @@ class BikeGattClient(
             gatt.writeDescriptor(descriptor)
         }
 
+        @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
             if (descriptor.uuid == CLIENT_CONFIGURATION_UUID && status == BluetoothGatt.GATT_SUCCESS) {
                 isReady = true
                 status("ESP32 connecté")
-                onReady()
+                onReady(gatt.device.address)
             }
         }
 
@@ -198,7 +200,7 @@ class BikeGattClient(
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
-            consumeTelemetry(characteristic.uuid, characteristic.value ?: return)
+            consumeTelemetry(gatt.device.address, characteristic.uuid, characteristic.value ?: return)
         }
 
         override fun onCharacteristicChanged(
@@ -207,12 +209,12 @@ class BikeGattClient(
             value: ByteArray,
         ) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
-            consumeTelemetry(characteristic.uuid, value)
+            consumeTelemetry(gatt.device.address, characteristic.uuid, value)
         }
     }
 
-    private fun consumeTelemetry(uuid: UUID, value: ByteArray) {
-        if (uuid == BleProtocol.telemetryUuid) BleProtocol.decodeTelemetry(value)?.let(onTelemetry)
+    private fun consumeTelemetry(address: String, uuid: UUID, value: ByteArray) {
+        if (uuid == BleProtocol.telemetryUuid) BleProtocol.decodeTelemetry(value)?.let { onTelemetry(address, it) }
     }
 
     private fun scheduleReconnect() {
