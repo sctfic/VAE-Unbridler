@@ -12,6 +12,7 @@ data class SceneMesh(val surface: FloatArray, val grid: FloatArray, val contours
     val routeColors: FloatArray = floatArrayOf(),
     val roads: FloatArray = floatArrayOf(), val waterways: FloatArray = floatArrayOf(),
     val paths: FloatArray = floatArrayOf(), val buildings: FloatArray = floatArrayOf(),
+    val pathCenter: WorldPoint = center,
     val parcels: FloatArray = floatArrayOf(), val parcelLabels: List<com.alban.ebike.terrain.WorldLabel> = emptyList())
 
 object RideSceneMesh {
@@ -99,7 +100,7 @@ object RideSceneMesh {
 
     fun build(track: List<TrackPoint>, terrain: TerrainGrid?, speedMode: Boolean, heading: Double,
         metric: RouteMetric = RouteMetric.SPEED, detail: TerrainDetail = TerrainDetail.CLOSE,
-        cache: GeometryCache? = null, pauses: List<com.alban.ebike.model.RidePause> = emptyList(), progress: (String) -> Unit = {}): SceneMesh {
+        cache: GeometryCache? = null, pauses: List<com.alban.ebike.model.RidePause> = emptyList(), window: SceneWindow = SceneWindow.ALL, progress: (String) -> Unit = {}): SceneMesh {
         val originLat = terrain?.originLat ?: track.lastOrNull()?.latitude ?: 0.0
         val originLon = terrain?.originLon ?: track.lastOrNull()?.longitude ?: 0.0
         val base = terrain?.heights?.filter { it.isFinite() }?.minOrNull()?.toDouble() ?: 0.0
@@ -123,12 +124,15 @@ object RideSceneMesh {
                 colors.addAll(if (resting) listOf(1f, 0f, 1f) else RouteColors.color(track[i + 1], metric, range).toList())
             }
         }
-        val frame = positions.ifEmpty { listOf(WorldPoint(-45.0, -45.0), WorldPoint(45.0, 45.0)) }
+        // Keep the full route buffer; only the camera fitting points depend on the distance window.
+        val frame = positions.takeLast(TrackWindow.select(track, window).size).ifEmpty { listOf(WorldPoint(-45.0, -45.0), WorldPoint(45.0, 45.0)) }
         val center = WorldPoint((frame.minOf { it.east } + frame.maxOf { it.east }) / 2,
             (frame.minOf { it.north } + frame.maxOf { it.north }) / 2,
             (frame.minOf { it.height } + frame.maxOf { it.height }) / 2)
         return SceneMesh(ground.surface, ground.grid, ground.contours, route.toFloatArray(),
             positions.lastOrNull()?.let { floatArrayOf(it.east.toFloat(), it.north.toFloat(), it.height.toFloat()) } ?: floatArrayOf(),
-            frame, center, heading, speedMode, colors.toFloatArray())
+            frame, center, heading, speedMode, colors.toFloatArray(),
+            pathCenter = TrackCamera.barycenter(positions.filterIndexed { i, _ -> !track[i].resting }
+                .ifEmpty { listOf(positions.lastOrNull() ?: center) }))
     }
 }

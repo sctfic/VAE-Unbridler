@@ -80,10 +80,10 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     val report by rememberUpdatedState(onStatus)
     val reset by rememberUpdatedState(onReset)
     val detail = TerrainDetail.forWindow(window)
-    val selectedTrack = remember(state.track, state.position, window) {
+    val selectedTrack = remember(state.track, state.position) {
         val position = state.position
         val points = if (position != null && position.timeMs > (state.track.lastOrNull()?.timeMs ?: -1L)) state.track + position else state.track
-        TrackWindow.select(points, window)
+        points
     }
     SideEffect {
         view.onFrameReady = { milliseconds ->
@@ -178,12 +178,12 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         }
         diagnostics.end("OBJ")
     }
-    LaunchedEffect(active, selectedTrack, state.pauses, terrain, state.speedMode, metric, detail, mapMesh, layers, parcelMesh) {
+    LaunchedEffect(active, selectedTrack, window, state.pauses, terrain, state.speedMode, metric, detail, mapMesh, layers, parcelMesh) {
         if (!active) return@LaunchedEffect
         diagnostics.begin("3D", "Préparation scène")
         heading = GeoFrame.heading(selectedTrack, heading)
         val next = withContext(Dispatchers.IO) { RideSceneMesh.build(selectedTrack, terrain, state.speedMode, heading, metric, detail,
-            geometryCache, pauses = state.pauses) { diagnostics.report("3D", it) } }
+            geometryCache, pauses = state.pauses, window = window) { diagnostics.report("3D", it) } }
         diagnostics.end("3D")
         fun visible(key: String, data: FloatArray) = if (layers[key] == true) data else floatArrayOf()
         diagnostics.begin("GPU", "Attente envoi au rendu")

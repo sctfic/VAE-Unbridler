@@ -174,7 +174,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         if (next != null && next !== mesh) {
             val previous = mesh
             mesh = next
-            pathCenter = TrackCamera.barycenter(next.frame)
+            pathCenter = next.pathCenter
             fitCenter = null
             framePoints = next.frame.map { WorldPoint(it.east - next.center.east, it.north - next.center.north, it.height - next.center.height) }
             fittedHeading = Double.NaN

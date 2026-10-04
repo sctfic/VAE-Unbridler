@@ -58,6 +58,33 @@ class SceneGeometryTest {
         assertEquals(10, result.count { it.resting })
     }
 
+    @Test fun distanceWindowsChangeFramingWithoutTruncatingTheRoute() {
+        val points = (0..40).map { i -> TrackPoint(48.0 + i * .001, 2.0, 100f,
+            i * 1000L, i * 100.0, i == 0) }
+        val full = RideSceneMesh.build(points, null, false, 0.0)
+        for (window in SceneWindow.entries) {
+            val mesh = RideSceneMesh.build(points, null, false, 0.0, window = window)
+            assertArrayEquals(full.route, mesh.route, 0f)
+            assertArrayEquals(full.routeColors, mesh.routeColors, 0f)
+            assertEquals(TrackWindow.select(points, window).size, mesh.frame.size)
+            assertEquals(full.pathCenter, mesh.pathCenter)
+            assertEquals(full.frame.last(), mesh.frame.last())
+        }
+    }
+
+    @Test fun restDurationAndPositionCannotPullTheBarycenter() {
+        val a = TrackPoint(48.0, 2.0, 100f, 0L, 0.0)
+        val b = a.copy(latitude = 48.001, timeMs = 1000, distanceM = 100.0)
+        val rest = (1..100).map { b.copy(latitude = 48.002, timeMs = 1000L + it * 1000, resting = true) }
+        // Same origin/terrain for both scenes, independently of the last rest coordinate.
+        val terrain = com.alban.ebike.terrain.TerrainGrid(48.0, 2.0, 1000.0, 5, FloatArray(25), "test", true)
+        val moving = RideSceneMesh.build(listOf(a, b), terrain, false, 0.0)
+        val paused = RideSceneMesh.build(listOf(a, b) + rest, terrain, false, 0.0)
+        assertEquals(moving.pathCenter, paused.pathCenter)
+        val onlyRest = RideSceneMesh.build(rest, terrain, false, 0.0)
+        assertEquals(onlyRest.frame.last(), onlyRest.pathCenter)
+    }
+
     @Test fun longitudeScaleIsCorrectAndDatelineDoesNotJump() {
         val east = GeoFrame.local(60.0, .001, 60.0, 0.0)
         val north = GeoFrame.local(60.001, 0.0, 60.0, 0.0)

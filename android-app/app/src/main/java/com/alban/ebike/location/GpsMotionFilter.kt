@@ -15,7 +15,6 @@ class GpsMotionFilter {
     private var moving = false
     private var lastTrustedMs = -1L
     private var filteredSpeed = 0f
-    private var lowSpeedCount = 0
     private val speeds = ArrayDeque<Float>()
 
     fun reset() {
@@ -25,7 +24,6 @@ class GpsMotionFilter {
         moving = false
         lastTrustedMs = -1L
         filteredSpeed = 0f
-        lowSpeedCount = 0
         speeds.clear()
     }
 
@@ -59,11 +57,10 @@ class GpsMotionFilter {
                 else -> "vitesse invalide"
             })
         }
-        // Hysteresis: conservative departure, immediate well-measured stop;
-        // low but ambiguous speeds need two consecutive readings while moving.
-        val low = speed - 2 * error < if (moving) .35f else .7f
-        lowSpeedCount = if (low && speed < 1.4f) lowSpeedCount + 1 else 0
-        if (speed <= .5f && error <= 1f || !moving && low || moving && lowSpeedCount >= 2) {
+        // A slow or uncertain measurement is not evidence of a stop.
+        // Only an explicitly low native speed confirms zero.
+        val low = speed - 2 * error < if (moving) .15f else .2f
+        if (speed <= .5f && error <= 1f) {
             anchor = fix
             confirmations = 0
             moving = false
@@ -72,14 +69,14 @@ class GpsMotionFilter {
             lastTrustedMs = fix.timeMs
             return Result(0f, true, false, "arrêt/seuil bas")
         }
-        if (moving && low) return uncertain(fix, "mouvement incertain")
+        if (low) return uncertain(fix, "mouvement incertain")
         if (anchor == null) anchor = fix
         confirmations++
         val origin = anchor!!
         val displacement = distanceM(origin, fix)
         // A precise native speed can establish movement without waiting for a large position baseline.
         if (!moving && confirmations >= 2 && fix.timeMs - origin.timeMs >= 500 &&
-            fix.accuracyM <= 10f && error <= .5f && speed >= 2f && displacement > 3.0) moving = true
+            fix.accuracyM <= 10f && error <= .5f && speed >= .8f && displacement > 3.0) moving = true
         if (!moving && confirmations >= 3 && fix.timeMs - origin.timeMs >= 1500 &&
             displacement > max(3.0, (origin.accuracyM + fix.accuracyM).toDouble())) moving = true
         if (!moving) return Result(0f, false, false, "confirmation $confirmations/3 · déplacement ${displacement.toInt()}m")

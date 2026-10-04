@@ -15,7 +15,7 @@ class GpsTrackFilter {
     private var broken = true
     private var confirmations = 0
 
-    fun reset() { previous = null; anchor = null; progress = null; running = false; broken = true; confirmations = 0 }
+    fun reset() { previous = null; recorded = null; anchor = null; progress = null; running = false; broken = true; confirmations = 0 }
     private fun distance(a: GpsMotionFilter.Fix, b: GpsMotionFilter.Fix): Double {
         val delta = GeoFrame.local(b.latitude, b.longitude, a.latitude, a.longitude)
         return hypot(delta.east, delta.north)
@@ -51,7 +51,7 @@ class GpsTrackFilter {
         if (distance(lastProgress, fix) > max(3.0, (lastProgress.accuracyM + fix.accuracyM).toDouble())) progress = fix
         if (!motion.moving && !stopped && fix.timeMs - (progress ?: fix).timeMs > 5000) running = false
         if (recorded == null || running || wasRunning && stopped || broken) {
-            val delta = if (!broken && recorded != null) distance(recorded!!, fix) else 0.0
+            val delta = if (!broken && recorded != null) distance(if (!wasRunning && old != null) old else recorded!!, fix) else 0.0
             val first = broken
             recorded = fix; broken = false
             return Decision(true, true, if (delta >= .4) delta else 0.0, first,

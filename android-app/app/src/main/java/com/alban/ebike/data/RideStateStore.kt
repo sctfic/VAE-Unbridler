@@ -24,7 +24,8 @@ object RideStateStore {
     private var lastFixTimeMs = -1L
     private var filteredAltitude: Float? = null
     private var distanceM = 0.0
-    private val regression = com.alban.ebike.location.PositionSpeedRegression()
+    private val measurements = com.alban.ebike.location.GpsMeasurements()
+    private val altitudeQuality = com.alban.ebike.location.AltitudeQuality()
     private val movingTimer = MovingTimer()
     private val calibration = WheelCalibration()
     private var calibrationBike: String? = null
@@ -39,8 +40,6 @@ object RideStateStore {
     private val elevationGain = ElevationGain()
     @Volatile var movingThresholdKmh = 4f
     @Volatile var gradePointCount = DistanceAltitudeProfile.DEFAULT_GRADE_POINTS
-    private val motionFilter = GpsMotionFilter()
-    private val trackFilter = GpsTrackFilter()
     private var lastReliableSpeedMs = 0L
 
     @Synchronized
@@ -90,9 +89,8 @@ object RideStateStore {
 
     @Synchronized
     fun resetGpsSpeed() {
-        motionFilter.reset()
-        regression.reset()
-        trackFilter.reset()
+        measurements.reset()
+        altitudeQuality.reset()
         lastFixTimeMs = -1L
         lastReliableSpeedMs = 0
         _state.update { it.copy(gpsSpeedKmh = 0f, gpsSpeedValid = false) }
@@ -139,17 +137,13 @@ object RideStateStore {
             if (location.hasAccuracy()) location.accuracy else Float.POSITIVE_INFINITY,
             if (location.hasSpeed()) location.speed else null,
             if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond else null)
-        var motion = motionFilter.accept(fix, nowMs)
-        val decision = trackFilter.accept(fix, nowMs, motion)
-        if (!decision.accepted) {
-            motionFilter.reset()
-            motion = GpsMotionFilter.Result(0f, false, false, decision.reason)
-        } else lastFixTimeMs = fixTimeMs
+        val reading = measurements.accept(fix, nowMs)
+        val motion = reading.motion
+        val decision = reading.track
+        val approximate = reading.approximate
+        lastFixTimeMs = fixTimeMs
         calibration.gps(fixTimeMs, nowMs, location.latitude, location.longitude, fix.accuracyM,
             decision.accepted && _state.value.bluetoothReady)
-        val estimated = if (decision.accepted) regression.accept(fix, nowMs) else { regression.reset(); null }
-        val approximate = (!motion.reliable || motion.reason.startsWith("maintien")) && estimated != null
-        if (approximate) motion = GpsMotionFilter.Result(estimated!!, true, estimated > 1.8f, "régression coordonnées · approximation")
         val accuracy = if (location.hasAccuracy()) "%.0f".format(location.accuracy) else "?"
         val rawSpeed = if (location.hasSpeed()) "%.1f".format(location.speed * 3.6f) else "?"
         val speedError = if (location.hasSpeedAccuracy()) "%.2f".format(location.speedAccuracyMetersPerSecond) else "?"
@@ -180,8 +174,9 @@ object RideStateStore {
         val time = location.time.takeIf { it > 0 } ?: System.currentTimeMillis()
         distanceM += decision.distanceM
 
-        val hasAltitude = location.hasAltitude() && location.altitude.isFinite() &&
-            (!location.hasVerticalAccuracy() || location.verticalAccuracyMeters <= 15f)
+        val hasAltitude = altitudeQuality.accept(fixTimeMs, distanceM,
+            location.altitude.takeIf { location.hasAltitude() },
+            location.verticalAccuracyMeters.takeIf { location.hasVerticalAccuracy() }, decision.segmentStart)
         if (hasAltitude && (filteredAltitude == null || decision.distanceM > 0 || decision.segmentStart)) {
             val rawAltitude = location.altitude.toFloat()
             val alpha = (1 - kotlin.math.exp(-decision.distanceM / 8.0)).toFloat().coerceIn(0f, 1f)
@@ -194,7 +189,7 @@ object RideStateStore {
             altitude.takeIf { hasAltitude }, decision.segmentStart) else _state.value.profile
         if (decision.append || !hasAltitude) elevationGain.update(altitude.takeIf { hasAltitude }, decision.segmentStart)
         val inclination = profile.grade(gradePointCount)
-        GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude append=${decision.append}")
+        GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude altitudeValid=$hasAltitude verticalAccuracy=${if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters else null} append=${decision.append}")
         val snapshot = _state.value
         val point = TrackPoint(location.latitude, location.longitude, altitude ?: 0f, time,
             distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, inclination, hasAltitude,
