@@ -97,7 +97,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         Column(Modifier.fillMaxSize().background(Ink)) {
          if (landscape) {
           Box(Modifier.fillMaxSize()) {
-           TerrainScene(state, Modifier.align(Alignment.TopEnd).fillMaxWidth(.6f).fillMaxHeight(.8f), metric,
+           TerrainScene(state, Modifier.align(Alignment.TopEnd).fillMaxWidth(.6f).fillMaxHeight(), metric,
                sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
                debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
           Row(Modifier.fillMaxWidth().fillMaxHeight(.8f)) {
@@ -163,8 +163,8 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                     overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
             Separator(accent)
-            BoxWithConstraints(Modifier.fillMaxWidth().weight(.62f).clipToBounds()) {
-                TerrainScene(state, Modifier.fillMaxWidth().height((maxHeight - 128.dp).coerceAtLeast(80.dp)), metric, sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
+            Box(Modifier.fillMaxWidth().weight(.62f).clipToBounds()) {
+                TerrainScene(state, Modifier.fillMaxSize(), metric, sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
                     debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
                 Column(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(end = 116.dp)
                     .padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -324,7 +324,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 6.dp)) {
             val compactText = androidx.compose.ui.text.TextStyle(
                 platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false))
-            Text(if (readout.historical) "TEMPS AU POINT" else "TEMPS EN MOUVEMENT",
+            Text(if (readout.historical) "TEMPS AU POINT" else "ACTIVITÉ",
                 color = Muted, fontSize = 8.sp, lineHeight = 10.sp, style = compactText)
             Text(readout.movingTimeMs?.let(::formatRideDuration) ?: "—",
                 color = if (readout.resting) Muted else White, fontSize = 28.sp, lineHeight = 29.sp, style = compactText,

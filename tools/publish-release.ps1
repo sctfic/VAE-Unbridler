@@ -36,6 +36,17 @@ $upload = ($release.upload_url -split '\{')[0] + '?name=' + [uri]::EscapeDataStr
 $asset = Invoke-RestMethod $upload -Method Post -Headers $headers -ContentType 'application/vnd.android.package-archive' -InFile $apkFile.FullName
 if ($asset.state -ne 'uploaded' -or $asset.size -ne $apkFile.Length) { throw 'APK upload verification failed; release remains draft' }
 $release = Invoke-RestMethod "$api/$($release.id)" -Method Patch -Headers $headers -ContentType 'application/json' -Body '{"draft":false}'
+# Verify the public download before removing any older APK.
+$verificationFile = Join-Path ([IO.Path]::GetTempPath()) ("ebike-release-" + [guid]::NewGuid() + ".apk")
+try {
+    Invoke-WebRequest $asset.browser_download_url -OutFile $verificationFile -MaximumRetryCount 3 -RetryIntervalSec 5
+    if ((Get-FileHash -LiteralPath $verificationFile -Algorithm SHA256).Hash -ne
+        (Get-FileHash -LiteralPath $apkFile.FullName -Algorithm SHA256).Hash) {
+        throw 'Published APK hash mismatch; older APKs retained'
+    }
+} finally {
+    if (Test-Path -LiteralPath $verificationFile) { Remove-Item -LiteralPath $verificationFile }
+}
 # Retain only the newly published APK; keep old tags and release notes.
 $page = 1
 $oldAssets = @()
