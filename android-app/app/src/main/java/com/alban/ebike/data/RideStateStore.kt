@@ -26,6 +26,7 @@ object RideStateStore {
     private var distanceM = 0.0
     private val regression = com.alban.ebike.location.PositionSpeedRegression()
     private val movingTimer = MovingTimer()
+    private val calibration = WheelCalibration()
     private val elevationGain = ElevationGain()
     @Volatile var movingThresholdKmh = 4f
     @Volatile var gradePointCount = DistanceAltitudeProfile.DEFAULT_GRADE_POINTS
@@ -37,11 +38,11 @@ object RideStateStore {
     fun resetRide() {
         track.clear(); trackPoints = emptyList(); profile.clear()
         distanceM = 0.0; filteredAltitude = null
-        movingTimer.reset(); elevationGain.reset()
+        movingTimer.reset(); elevationGain.reset(); calibration.reset()
         resetGpsSpeed()
         RideTrackJournal.startNewRide()
         _state.update { it.copy(distanceM = 0.0, track = emptyList(), profile = emptyList(),
-            position = null, altitudeM = null, movingTimeMs = 0, restTimeMs = 0, resting = true, pauses = emptyList(), elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
+            position = null, altitudeM = null, movingTimeMs = 0, restTimeMs = 0, resting = true, pauses = emptyList(), calibration = null, elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
         GpsDebugLog.record("RESET trajet confirmé")
     }
 
@@ -70,7 +71,13 @@ object RideStateStore {
     }
 
     @Synchronized
-    fun suspendTimers() { movingTimer.suspend() }
+    fun suspendTimers() { movingTimer.suspend(); calibration.disconnect() }
+
+    @Synchronized
+    fun evaluateWheelCalibration() {
+        val proposal = calibration.evaluate()
+        _state.update { it.copy(calibration = proposal) }
+    }
 
     @Synchronized
     fun resetGpsSpeed() {
@@ -83,6 +90,7 @@ object RideStateStore {
     }
 
     fun setBluetoothReady(ready: Boolean) {
+        if (!ready) calibration.disconnect()
         _state.update { it.copy(bluetoothReady = ready,
             modeSupported = ready && it.modeSupported,
             speedMode = ready && it.speedMode,
@@ -98,6 +106,7 @@ object RideStateStore {
     }
 
     fun ingestTelemetry(telemetry: BikeTelemetry) {
+        calibration.telemetry(SystemClock.elapsedRealtime(), telemetry.uptimeMs, telemetry.wheelRevolutions)
         _state.update { it.copy(
             speedMode = telemetry.speedMode,
             modeSupported = telemetry.modeSupported,
@@ -126,6 +135,8 @@ object RideStateStore {
             motionFilter.reset()
             motion = GpsMotionFilter.Result(0f, false, false, decision.reason)
         } else lastFixTimeMs = fixTimeMs
+        calibration.gps(fixTimeMs, nowMs, location.latitude, location.longitude, fix.accuracyM,
+            decision.accepted && _state.value.bluetoothReady)
         val estimated = if (decision.accepted) regression.accept(fix, nowMs) else { regression.reset(); null }
         val approximate = (!motion.reliable || motion.reason.startsWith("maintien")) && estimated != null
         if (approximate) motion = GpsMotionFilter.Result(estimated!!, true, estimated > 1.8f, "régression coordonnées · approximation")

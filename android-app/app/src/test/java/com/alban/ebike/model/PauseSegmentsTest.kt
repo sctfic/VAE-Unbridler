@@ -18,4 +18,15 @@ class PauseSegmentsTest {
         assertEquals(listOf(afterGap to current),
             pauseSegments(listOf(RidePause(start)), listOf(afterGap), current))
     }
+    @Test fun splitsExactlyAtRestBoundaries() {
+        val pause = RidePause(point(20), point(40))
+        assertEquals(listOf(Triple(0f, .2f, false), Triple(.2f, .4f, true), Triple(.4f, 1f, false)),
+            restSections(0.0, 100.0, listOf(pause)))
+    }
+
+    @Test fun ongoingRestExtendsToEndAndStationaryPauseDoesNotColourMovement() {
+        assertEquals(listOf(Triple(0f, .5f, false), Triple(.5f, 1f, true)),
+            restSections(0.0, 40.0, listOf(RidePause(point(20)))))
+        assertTrue(restSections(0.0, 40.0, listOf(RidePause(point(20), point(20)))).none { it.third })
+    }
 }

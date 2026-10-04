@@ -58,6 +58,13 @@ class RideService : Service() {
                 kotlinx.coroutines.delay(1000)
             }
         }
+        serviceScope.launch {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                kotlinx.coroutines.delay(3000)
+                val ride = RideStateStore.state.value
+                if (ride.resting && ride.restTimeMs >= 3000) RideStateStore.evaluateWheelCalibration()
+            }
+        }
         gattClient = BikeGattClient(
             context = this,
             onReady = {

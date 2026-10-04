@@ -44,6 +44,7 @@ data class RideUiState(
     val profile: List<AltitudePoint> = emptyList(),
     val track: List<TrackPoint> = emptyList(),
     val pauses: List<RidePause> = emptyList(),
+    val calibration: com.alban.ebike.data.WheelCalibrationProposal? = null,
     val position: TrackPoint? = null,
     val simulatedOutput: Boolean = false,
     val lastGpsAccuracyM: Float? = null,

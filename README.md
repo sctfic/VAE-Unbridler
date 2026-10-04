@@ -1,9 +1,9 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.10** — auteur **Lopez Alban**.
+Version Android **0.4.11** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
-Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.10](RELEASE_0.4.10.md).
+Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.11](RELEASE_0.4.11.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
@@ -127,6 +127,14 @@ Firmware déjà construit : `firmware-esp32/build/ebike_firmware.bin`.
 Retirer le cockpit des applications récentes arrête le suivi GPS, la connexion et les relances BLE, le verrou CPU et la notification du trajet. Le service ne demande plus de redémarrage automatique. Le bouton Arrêter applique le même comportement.
 La surveillance de présence de l’appareil associé reste confiée à Android, sans boucle GPS/BLE propre à l’application. Après une fermeture, les rappels de présence sont ignorés jusqu’à une disparition puis une nouvelle apparition de l’ESP, ou une ouverture manuelle. Le lancement automatique dépend de l’association et des autorisations Android ; sur écran verrouillé, une notification permet d’ouvrir le cockpit.
 
-Un seul compteur avance : mouvement si la vitesse valide dépasse le seuil, repos sinon (y compris sans signal). Le temps de mouvement reste visible mais atténué au repos ; le repos est caché et remis à zéro à la reprise. Les segments de repos portent une fine bordure magenta sur le profil et la 3D. Sans position GPS, le repère est placé à la dernière position connue ; aucune position n’est inventée.
+Un seul compteur avance : mouvement si la vitesse valide dépasse le seuil, repos sinon (y compris sans signal). Le temps de mouvement reste visible mais atténué au repos ; le repos est caché et remis à zéro à la reprise. Les segments de repos sont colorés en magenta sur le profil et la 3D. Sans position GPS, le repère est placé à la dernière position connue ; aucune position n’est inventée.
 
 Les APK du dossier releases sont limités à la dernière version signée, préparée avec `tools/package-apk.ps1`. Les anciennes versions restent accessibles dans l’historique Git.
+
+### Calibration passive du périmètre
+
+Pendant les pauses d’au moins trois secondes, l’application analyse l’historique GPS/ticks collecté pendant la session. Elle retient le plus long segment admissible : au moins 500 m de trajectoire filtrée, précision GPS annoncée ≤ 7 m et rapport distance entre extrémités / longueur de trajectoire ≥ 95 %. Les coupures, retours du compteur et positions non fiables interrompent les segments. La vitesse et le périmètre déjà configuré ne servent pas au calcul.
+
+Les compteurs cumulés sont interpolés aux dates GPS, avec l’horloge monotone de l’ESP et une estimation du décalage de réception BLE. Le diviseur est la différence des compteurs (intervalles de tours), sans retirer encore un tick. Les fenêtres BLE de plus d’une seconde ne sont pas interpolées. La collecte reste en mémoire, limitée aux 20 000 derniers points GPS ; le meilleur segment déjà analysé est conservé jusqu’au reset trajet ou à la fin du processus.
+
+Si l’écart dépasse strictement 1 %, Setting pulse pendant la pause avec « calibration de roue ». Le menu affiche valeur actuelle, proposition, écart, distance et rectitude. Appliquer nécessite une pause et l’ESP connecté ; cela utilise la sauvegarde et l’envoi du périmètre existants. Aucune modification automatique. La précision GPS affichée est une estimation du fournisseur, pas une garantie d’exactitude du périmètre.

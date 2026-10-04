@@ -102,7 +102,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                     Text("●  ESP32", color = if (state.bluetoothReady) Cyan else Color.Gray,
                         fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
                 }
-                SettingsButton(circumferenceMm, state.bluetoothReady) { settingsOpen = true }
+                SettingsButton(circumferenceMm, state.bluetoothReady, state.resting && state.calibration?.significant(circumferenceMm) == true) { settingsOpen = true }
             }
             Column(Modifier.fillMaxWidth().weight(1f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
@@ -121,23 +121,13 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                         Metric("PENTE", readout.gradePercent?.let { "%+.1f".format(it) } ?: "—", "%", Modifier.weight(1f).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally)
                         Spacer(Modifier.weight(1f))
                     }
-                    if (legendVisible) {
-                    val range = RouteColors.range(state.track, metric)
-                    val unit = when (metric) { RouteMetric.SPEED -> "km/h"; RouteMetric.ALTITUDE -> "m"; RouteMetric.GRADE -> "%" }
-                    Text("${metric.label} · ${range.first.toInt()} → ${range.second.toInt()} $unit · gris : sans mesure",
-                        color = Cyan, fontSize = 9.sp)
-                    Box(Modifier.padding(top = 3.dp).fillMaxWidth().height(3.dp).background(Brush.horizontalGradient(
-                        (0..3).map { i -> RouteColors.palette(i / 3f).let { Color(it[0], it[1], it[2]) } })))
-                    }
                 }
-                Metric(if (readout.historical) "DISTANCE · POINT" else "DISTANCE · ${sceneWindow.label}", "%.2f".format(readout.distanceM / 1000), "km",
-                    Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 2.dp), Alignment.Start)
-                Metric("DÉNIVELÉ +", readout.elevationGainM?.let { "%.0f".format(it) } ?: "—", "m",
-                    Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 2.dp), Alignment.End)
-                Column(Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 74.dp).fillMaxWidth(.68f),
-                    horizontalAlignment = Alignment.End) {
-                            Text(terrainStatus, color = Muted, fontSize = 7.sp, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                    RideFooterMetrics(readout, sceneWindow, Modifier.padding(horizontal = 14.dp))
+                    Text(terrainStatus, color = Muted, fontSize = 7.sp, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp))
+                    if (legendVisible) RouteLegend(state, metric, Modifier.fillMaxWidth())
                 }
             }
           }
@@ -157,7 +147,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                         fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
                 }
                 Text("E-BikeCockpit", color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
-                SettingsButton(circumferenceMm, state.bluetoothReady) { settingsOpen = true }
+                SettingsButton(circumferenceMm, state.bluetoothReady, state.resting && state.calibration?.significant(circumferenceMm) == true) { settingsOpen = true }
             }
             Column(Modifier.fillMaxWidth().weight(.38f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
@@ -176,25 +166,16 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                         Metric("ALTITUDE", readout.altitudeM?.let { "%.0f".format(it) } ?: "—", "m", Modifier.weight(1f).clickable { selectMetric(RouteMetric.ALTITUDE) }, Alignment.Start)
                         Metric("PENTE", readout.gradePercent?.let { "%+.1f".format(it) } ?: "—", "%", Modifier.weight(1f).offset(x = (-12).dp).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally)
                     }
-                    if (legendVisible) {
-                        val range = RouteColors.range(state.track, metric)
-                        val unit = when (metric) { RouteMetric.SPEED -> "km/h"; RouteMetric.ALTITUDE -> "m"; RouteMetric.GRADE -> "%" }
-                        Text("${metric.label} · ${range.first.toInt()} → ${range.second.toInt()} $unit · gris : sans mesure", color = Cyan, fontSize = 9.sp)
-                        Box(Modifier.padding(top = 3.dp).fillMaxWidth().height(3.dp).background(Brush.horizontalGradient(
-                            (0..3).map { i -> RouteColors.palette(i / 3f).let { Color(it[0], it[1], it[2]) } })))
-                    }
                 }
-                Metric(if (readout.historical) "DISTANCE · POINT" else "DISTANCE · ${sceneWindow.label}", "%.2f".format(readout.distanceM / 1000), "km",
-                    Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 108.dp), Alignment.Start)
-                Metric("DÉNIVELÉ +", readout.elevationGainM?.let { "%.0f".format(it) } ?: "—", "m",
-                    Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 108.dp), Alignment.End)
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Ink.copy(alpha = .85f), Ink)))
                     .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 1.dp)) {
+                    RideFooterMetrics(readout, sceneWindow, Modifier.fillMaxWidth())
                     Column(Modifier.fillMaxWidth().clickable { selectedPoint = null; profileMode = (profileMode + 1) % 3 }) {
                         Text(terrainStatus, color = Muted, fontSize = 7.sp, letterSpacing = .3.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End,
                             modifier = Modifier.fillMaxWidth())
+                        if (legendVisible) RouteLegend(state, metric, Modifier.fillMaxWidth())
                         Box(Modifier.fillMaxWidth().height(104.dp)) {
                             AltitudeRibbon(state, accent, Modifier.fillMaxSize().padding(top = 3.dp), profileWindow, selectedPoint, { profileDragging = it }) { selectedPoint = it }
                             ProfileFooter(profileMode, accent, { sourcesOpen = true }, Modifier.align(Alignment.BottomCenter))
@@ -204,7 +185,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }
          }
         }
-        if (settingsOpen) WheelSettingsDialog(circumferenceMm, { settingsOpen = false }, onSaveCircumference)
+        if (settingsOpen) WheelSettingsDialog(circumferenceMm, state, { settingsOpen = false }, onSaveCircumference)
         if (resetOpen) AlertDialog(onDismissRequest = { resetOpen = false },
             title = { Text("Réinitialiser le trajet ?") },
             text = { Text("Le tracé, la distance et le profil d’altitude seront remis à zéro. Les anciens fichiers de trajet seront conservés.") },
@@ -216,11 +197,39 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     }
 }
 
-@Composable private fun SettingsButton(circumferenceMm: Int, bluetoothReady: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+@Composable private fun RideFooterMetrics(readout: RideReadout, window: SceneWindow, modifier: Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Metric(if (readout.historical) "DISTANCE · POINT" else "DISTANCE · ${window.label}",
+            "%.2f".format(readout.distanceM / 1000), "km", Modifier.weight(1f), Alignment.Start)
+        Metric("DÉNIVELÉ +", readout.elevationGainM?.let { "%.0f".format(it) } ?: "—",
+            "m", Modifier.weight(1f), Alignment.End)
+    }
+}
+
+@Composable private fun RouteLegend(state: RideUiState, metric: RouteMetric, modifier: Modifier) {
+    val range = RouteColors.range(state.track, metric)
+    val unit = when (metric) { RouteMetric.SPEED -> "km/h"; RouteMetric.ALTITUDE -> "m"; RouteMetric.GRADE -> "%" }
+    Column(modifier.fillMaxWidth()) {
+        Text("${metric.label} · ${range.first.toInt()} → ${range.second.toInt()} $unit · gris : sans mesure · magenta : repos",
+            color = Cyan, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp).background(Ink.copy(alpha = .7f)))
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Brush.horizontalGradient(
+            (0..3).map { i -> RouteColors.palette(i / 3f).let { Color(it[0], it[1], it[2]) } })))
+    }
+}
+
+@Composable private fun SettingsButton(circumferenceMm: Int, bluetoothReady: Boolean, calibrationAvailable: Boolean, onClick: () -> Unit) {
+    val opacity = if (calibrationAvailable) {
+        val pulse by rememberInfiniteTransition(label = "wheel calibration").animateFloat(.4f, 1f,
+            infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "settings pulse")
+        pulse
+    } else 1f
+    TextButton(onClick = onClick, modifier = Modifier.graphicsLayer { alpha = opacity },
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Setting", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, lineHeight = 15.sp)
-            if (bluetoothReady) Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp, lineHeight = 13.sp)
+            if (calibrationAvailable) Text("calibration de roue", color = Cyan, fontSize = 9.sp, lineHeight = 13.sp)
+            else if (bluetoothReady) Text("ROUE $circumferenceMm", color = Muted, fontSize = 10.sp, lineHeight = 13.sp)
         }
     }
 }
@@ -234,7 +243,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("IGN / MAPZEN · © OpenStreetMap ⓘ", color = Muted, fontSize = 7.sp, lineHeight = 8.sp,
                 modifier = Modifier.clickable(onClick = onSources))
-            Text("Auteur Lopez Alban 2026 · GitHub ↗", color = Muted.copy(alpha = .85f),
+            Text("Auteur Lopez Alban 2026 · v${com.alban.ebike.BuildConfig.VERSION_NAME} · GitHub ↗", color = Muted.copy(alpha = .85f),
                 fontSize = 7.sp, lineHeight = 8.sp, maxLines = 1, modifier = Modifier.clickable {
                     runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
                         android.net.Uri.parse("https://github.com/sctfic/VAE-Unbridler"))) }
@@ -380,9 +389,12 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         }
         clipRect {
             for (index in 1 until points.size) if (!points[index].segmentStart) {
-                val segmentColor = color((points[index - 1].altitudeM + points[index].altitudeM) / 2)
-                drawLine(segmentColor.copy(alpha = .16f), locations[index - 1], locations[index], 7.dp.toPx(), StrokeCap.Round)
-                drawLine(segmentColor, locations[index - 1], locations[index], (1.8f + sunlight * 1.8f).dp.toPx(), StrokeCap.Round)
+                com.alban.ebike.model.restSections(points[index - 1].distanceM, points[index].distanceM, state.pauses).forEach { (from, to, resting) ->
+                    val segmentColor = if (resting) Color.Magenta else color((points[index - 1].altitudeM + points[index].altitudeM) / 2)
+                    val a = locations[index - 1]; val delta = locations[index] - a
+                    drawLine(segmentColor.copy(alpha = .16f), a + delta * from, a + delta * to, 7.dp.toPx(), StrokeCap.Round)
+                    drawLine(segmentColor, a + delta * from, a + delta * to, (1.8f + sunlight * 1.8f).dp.toPx(), StrokeCap.Round)
+                }
             }
             val current = locations.last().copy(x = locations.last().x.coerceIn(4.dp.toPx(), size.width - 4.dp.toPx()))
             drawCircle(color(points.last().altitudeM, .25f * (1 - pulse)), 8.dp.toPx() + 11.dp.toPx() * pulse, current)
@@ -404,23 +416,13 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         }
         extremum(maxPoint, "MAX", true)
         if (minPoint !== maxPoint) extremum(minPoint, "MIN", false)
-        clipRect {
-            com.alban.ebike.model.pauseSegments(state.pauses, state.track, state.position).forEach { (a, b) ->
-                val minimum = state.distanceM - windowM
-                if (a.altitudeValid && b.altitudeValid && b.distanceM >= minimum && a.distanceM <= state.distanceM) {
-                    drawPauseBorder(screen(com.alban.ebike.model.AltitudePoint(a.distanceM, a.altitudeM)),
-                        screen(com.alban.ebike.model.AltitudePoint(b.distanceM, b.altitudeM)),
-                        (1.8f + sunlight * 1.8f).dp.toPx())
-                }
-            }
-        }
         selected?.takeIf { it.distanceM in (state.distanceM - windowM)..state.distanceM }?.let {
             drawSelectionMarker(screen(com.alban.ebike.model.AltitudePoint(it.distanceM, it.altitudeM)))
         }
     }
 }
 
-@Composable private fun WheelSettingsDialog(currentCircumferenceMm: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+@Composable private fun WheelSettingsDialog(currentCircumferenceMm: Int, state: RideUiState, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("ride-options", android.content.Context.MODE_PRIVATE) }
     var threshold by remember { mutableFloatStateOf(preferences.getFloat("moving-threshold", 4f)) }
@@ -430,6 +432,18 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     val calculated = value.toDoubleOrNull()?.let { if (directMode) it.toInt() else (Math.PI * it).toInt() }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Roue, chronomètre et pente") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            state.calibration?.takeIf { it.significant(currentCircumferenceMm) }?.let { proposal ->
+                Text("Calibration de roue", color = Cyan, fontWeight = FontWeight.Bold)
+                Text("${currentCircumferenceMm} mm → ${proposal.circumferenceMm} mm · %+.2f %%".format(proposal.differencePercent(currentCircumferenceMm)))
+                Text("Segment : %.0f m · rectitude %.1f %% · GPS ≤ 7 m".format(proposal.distanceM, proposal.straightness * 100), fontSize = 12.sp)
+                Button(enabled = state.resting && state.bluetoothReady, onClick = {
+                    onSave(proposal.circumferenceMm)
+                    onDismiss()
+                }) { Text("Appliquer cette calibration") }
+                if (!state.bluetoothReady) Text("Connecter l’ESP32 pour appliquer.", fontSize = 12.sp)
+                else if (!state.resting) Text("Application possible pendant une pause.", fontSize = 12.sp)
+                HorizontalDivider()
+            }
             Text(if (directMode) "Longueur parcourue par tour (mm)" else "Diamètre de roue (mm)")
             OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("mm") })
             TextButton(onClick = { directMode = !directMode }) { Text(if (directMode) "Saisir le diamètre" else "Saisir la longueur par tour") }

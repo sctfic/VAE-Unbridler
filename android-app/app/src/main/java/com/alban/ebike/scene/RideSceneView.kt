@@ -66,8 +66,6 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     }
     fun selectPoint(point: WorldPoint?) { queueEvent { sceneRenderer.selectedPosition = point } }
     fun inspectTrack(enabled: Boolean) { queueEvent { sceneRenderer.inspection = enabled; sceneRenderer.orbit.automaticPaused = enabled } }
-    fun setPausePoints(points: List<Pair<WorldPoint, WorldPoint>>) { queueEvent { sceneRenderer.pausePoints = points } }
-    fun pauseMarkers() = sceneRenderer.pauseMarkers
     fun selectedMarker() = sceneRenderer.selectedMarker
     fun setSunlight(amount: Float) { queueEvent { sceneRenderer.sunlight = amount } }
     fun cameraPose() = sceneRenderer.cameraPose()
@@ -109,8 +107,6 @@ private class SceneRenderer : GLSurfaceView.Renderer {
     var onFrameReady: (Long) -> Unit = {}
     val orbit = SceneOrbit()
     var grade = 0f
-    var pausePoints: List<Pair<WorldPoint, WorldPoint>> = emptyList()
-    @Volatile var pauseMarkers: List<Pair<ScreenPoint, ScreenPoint>> = emptyList()
     var selectedPosition: WorldPoint? = null
     var inspection = false
     @Volatile var selectedMarker: ScreenPoint? = null
@@ -219,13 +215,6 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             TrackCamera.project(WorldPoint(point.east - scene.center.east, point.north - scene.center.north,
                 point.height - scene.center.height), heading, distance / orbit.zoom, aspect, orbit.tilt)
         }?.takeIf { it.depth > .5 && it.x in -1.0..1.0 && it.y in -1.0..1.0 }
-        pauseMarkers = pausePoints.mapNotNull { (start, end) ->
-            fun project(point: WorldPoint) = TrackCamera.project(WorldPoint(point.east - scene.center.east,
-                point.north - scene.center.north, point.height - scene.center.height),
-                heading, distance / orbit.zoom, aspect, orbit.tilt)
-            val a = project(start); val b = project(end)
-            if (a.depth > .5 && b.depth > .5) a to b else null
-        }
         visibleLabels = scene.parcelLabels.mapNotNull { label ->
             val p = label.point
             val x = p.east - scene.center.east; val y = p.north - scene.center.north; val z = p.height - scene.center.height
