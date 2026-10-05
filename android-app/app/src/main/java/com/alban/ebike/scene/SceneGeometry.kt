@@ -86,8 +86,9 @@ class VisibleTrack {
     fun clear() { points.clear() }
     fun add(point: TrackPoint): List<TrackPoint> {
         val last = points.lastOrNull()
-        if (last == null || point.segmentStart || point.distanceM - last.distanceM >= 2 || point.resting || last.resting) {
+        if (last == null || point.segmentStart || point.altitudeSegmentStart || point.distanceM - last.distanceM >= 2 || point.resting || last.resting) {
             if (points.size >= 2 && !point.segmentStart && !points.last().segmentStart &&
+                !point.altitudeSegmentStart && !points.last().altitudeSegmentStart &&
                 !point.resting && !points.last().resting && !points[points.size - 2].resting) {
                 val a = points[points.size - 2]
                 val b = points.last()
@@ -100,7 +101,8 @@ class VisibleTrack {
                     if (x == null || y == null) x == y else abs(x - y) <= tolerance
                 val preservesMetrics = comparable(a.speedKmh, b.speedKmh, .5f) && comparable(b.speedKmh, point.speedKmh, .5f) &&
                     comparable(a.gradePercent, b.gradePercent, .25f) && comparable(b.gradePercent, point.gradePercent, .25f) &&
-                    a.altitudeValid == b.altitudeValid && b.altitudeValid == point.altitudeValid
+                    a.altitudeValid == b.altitudeValid && b.altitudeValid == point.altitudeValid &&
+                    comparable(a.altitudeUncertaintyM, b.altitudeUncertaintyM, .2f) && comparable(b.altitudeUncertaintyM, point.altitudeUncertaintyM, .2f)
                 if (preservesMetrics && projection in 0.0..1.0 && deviation < .5 && point.distanceM - a.distanceM < 25 &&
                     abs(b.altitudeM - (a.altitudeM + (point.altitudeM - a.altitudeM) * projection)) < 1) points.removeLast()
             }

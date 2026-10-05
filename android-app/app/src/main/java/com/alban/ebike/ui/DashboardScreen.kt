@@ -19,6 +19,7 @@ import android.content.res.Configuration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -112,7 +113,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }
             Column(Modifier.fillMaxWidth().weight(1f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
-                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f))
+                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f), metric == RouteMetric.SPEED)
                 if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                     color = Muted, fontSize = 8.sp, lineHeight = 9.sp, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
@@ -123,8 +124,9 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                 Column(Modifier.align(Alignment.TopStart).fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Metric("ALTITUDE", readout.altitudeM?.let { "%.0f".format(it) } ?: "—", "m", Modifier.weight(1f).clickable { selectMetric(RouteMetric.ALTITUDE) }, Alignment.Start)
-                        Metric("PENTE", readout.gradePercent?.let { "%+.1f".format(it) } ?: "—", "%", Modifier.weight(1f).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally)
+                        Metric("ALTITUDE · ${readout.altitudeSource ?: "—"}", readout.altitudeM?.let { "%.0f".format(it) } ?: "—", "m", Modifier.weight(1f).clickable { selectMetric(RouteMetric.ALTITUDE) }, Alignment.Start,
+                            active = metric == RouteMetric.ALTITUDE, uncertainty = readout.altitudeUncertaintyM?.let { "±%.1f m".format(it) + if (readout.altitudeSource == "IGN") " (pos.)" else "" })
+                        Metric("PENTE · ${readout.altitudeSource ?: "—"}", readout.gradePercent?.let { "%+.1f".format(it) } ?: "—", "%", Modifier.weight(1f).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally, active = metric == RouteMetric.GRADE)
                         Spacer(Modifier.weight(1f))
                     }
                 }
@@ -157,7 +159,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }
             Column(Modifier.fillMaxWidth().weight(.38f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
-                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f))
+                SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f), metric == RouteMetric.SPEED)
                 if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                     color = Muted, fontSize = 9.sp, lineHeight = 11.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
@@ -169,8 +171,9 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                 Column(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(end = 116.dp)
                     .padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Metric("ALTITUDE", readout.altitudeM?.let { "%.0f".format(it) } ?: "—", "m", Modifier.weight(1f).clickable { selectMetric(RouteMetric.ALTITUDE) }, Alignment.Start)
-                        Metric("PENTE", readout.gradePercent?.let { "%+.1f".format(it) } ?: "—", "%", Modifier.weight(1f).offset(x = (-12).dp).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally)
+                        Metric("ALTITUDE · ${readout.altitudeSource ?: "—"}", readout.altitudeM?.let { "%.0f".format(it) } ?: "—", "m", Modifier.weight(1f).clickable { selectMetric(RouteMetric.ALTITUDE) }, Alignment.Start,
+                            active = metric == RouteMetric.ALTITUDE, uncertainty = readout.altitudeUncertaintyM?.let { "±%.1f m".format(it) + if (readout.altitudeSource == "IGN") " (pos.)" else "" })
+                        Metric("PENTE · ${readout.altitudeSource ?: "—"}", readout.gradePercent?.let { "%+.1f".format(it) } ?: "—", "%", Modifier.weight(1f).offset(x = (-12).dp).clickable { selectMetric(RouteMetric.GRADE) }, Alignment.CenterHorizontally, active = metric == RouteMetric.GRADE)
                     }
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -270,17 +273,25 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     }
 }
 
-@Composable private fun Metric(label: String, value: String, unit: String, modifier: Modifier, alignment: Alignment.Horizontal) {
+private fun Modifier.metricHalo(active: Boolean): Modifier = if (!active) this else drawBehind {
+    val radius = maxOf(size.width, size.height) * .65f
+    if (radius > 0f) drawCircle(Brush.radialGradient(listOf(Cyan.copy(alpha = .38f), Cyan.copy(alpha = .12f), Color.Transparent), center, radius), radius, center)
+}
+
+@Composable private fun Metric(label: String, value: String, unit: String, modifier: Modifier, alignment: Alignment.Horizontal, uncertainty: String? = null, active: Boolean = false) {
     val Muted = lerp(Color(0xFF89A9BC), Color.White, LocalSunlight.current)
     Column(modifier, horizontalAlignment = alignment) {
         Text(label, color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
-        Text(value, color = White, fontSize = if (value.length > 5) 30.sp else 37.sp,
+        Text(value, modifier = Modifier.metricHalo(active), color = White, fontSize = if (value.length > 5) 30.sp else 37.sp,
             fontWeight = FontWeight.Light, maxLines = 1, softWrap = false)
-        Text(unit, color = Cyan, fontSize = 12.sp, modifier = Modifier.offset(y = (-7).dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.offset(y = (-7).dp)) {
+            Text(unit, color = Cyan, fontSize = 12.sp)
+            uncertainty?.let { Text("  $it", color = Muted, fontSize = 9.sp, maxLines = 1) }
+        }
     }
 }
 
-@Composable private fun SpeedGauge(state: RideUiState, readout: RideReadout, accent: Color, modifier: Modifier) {
+@Composable private fun SpeedGauge(state: RideUiState, readout: RideReadout, accent: Color, modifier: Modifier, active: Boolean = false) {
     val Muted = lerp(Color(0xFF89A9BC), Color.White, LocalSunlight.current)
     val animatedSpeed by animateFloatAsState(readout.speedKmh ?: 0f,
         if (readout.historical) snap() else tween(420), label = "speed")
@@ -316,7 +327,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Text(readout.speedSource, color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
             Text(if (readout.speedKmh == null) "—" else speed.roundToInt().toString(), color = White,
                 fontSize = numberSize,
-                modifier = speedGlitch(readout.speedApproximate && readout.speedKmh != null),
+                modifier = Modifier.metricHalo(active).then(speedGlitch(readout.speedApproximate && readout.speedKmh != null)),
                 fontWeight = FontWeight.Bold, letterSpacing = (-3).sp, maxLines = 1, softWrap = false)
             Text("km/h", color = Muted, fontSize = 13.sp, letterSpacing = 2.sp,
                 modifier = Modifier.offset(y = (-8).dp))
@@ -366,7 +377,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         if (first < 0) emptyList() else state.track.drop((first - 1).coerceAtLeast(0))
     }
     val points = profileTrack.map { com.alban.ebike.model.AltitudePoint(it.distanceM, it.altitudeM,
-        it.segmentStart || !it.altitudeValid) }
+        it.segmentStart || it.altitudeSegmentStart || !it.altitudeValid) }
     val pulse by rememberInfiniteTransition(label = "profile marker").animateFloat(0f, 1f,
         infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart), label = "profile marker pulse")
     val latestState by rememberUpdatedState(state)
@@ -393,7 +404,9 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         val validPoints = points.filterIndexed { index, _ -> profileTrack[index].altitudeValid }
         if (validPoints.isEmpty()) return@Canvas
         val minPoint = validPoints.minBy { it.altitudeM }; val maxPoint = validPoints.maxBy { it.altitudeM }
-        val low = minPoint.altitudeM; val actualHigh = maxPoint.altitudeM; val high = max(low + 3, actualHigh)
+        val actualLow = minPoint.altitudeM; val actualHigh = maxPoint.altitudeM
+        val low = profileTrack.filter { it.altitudeValid }.minOf { it.altitudeM - (it.altitudeUncertaintyM ?: 0f) }
+        val high = max(low + 3, profileTrack.filter { it.altitudeValid }.maxOf { it.altitudeM + (it.altitudeUncertaintyM ?: 0f) })
         fun screen(point: com.alban.ebike.model.AltitudePoint): Offset {
             val x = DistanceAltitudeProfile.horizontalFraction(point.distanceM, state.distanceM, windowM) * size.width
             // Reserve the footer and the ring radius, so low-altitude selections stay visible.
@@ -404,7 +417,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         }
         val locations = points.map(::screen)
         fun color(altitude: Float, alpha: Float = 1f): Color {
-            val rgb = RouteColors.palette(((altitude - low) / (actualHigh - low).coerceAtLeast(1f)).coerceIn(0f, 1f))
+            val rgb = RouteColors.palette(((altitude - actualLow) / (actualHigh - actualLow).coerceAtLeast(1f)).coerceIn(0f, 1f))
             return Color(rgb[0], rgb[1], rgb[2], alpha)
         }
         clipRect {
@@ -413,19 +426,40 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
                     val resting = profileTrack[index - 1].resting
                     val segmentColor = if (resting) Color.Magenta else color((points[index - 1].altitudeM + points[index].altitudeM) / 2)
                     val a = locations[index - 1]; val b = locations[index]
-                    drawLine(segmentColor.copy(alpha = .25f), a, b, 7.dp.toPx(), StrokeCap.Round)
-                    drawLine(segmentColor, a, b, (2.3f + sunlight * 2f).dp.toPx(), StrokeCap.Round)
+                    val firstError = profileTrack[index - 1].altitudeUncertaintyM
+                    val secondError = profileTrack[index].altitudeUncertaintyM
+                    if (firstError != null && secondError != null) {
+                        val upperA = screen(points[index - 1].copy(altitudeM = points[index - 1].altitudeM + firstError))
+                        val upperB = screen(points[index].copy(altitudeM = points[index].altitudeM + secondError))
+                        val lowerA = screen(points[index - 1].copy(altitudeM = points[index - 1].altitudeM - firstError))
+                        val lowerB = screen(points[index].copy(altitudeM = points[index].altitudeM - secondError))
+                        val envelope = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(upperA.x, upperA.y); lineTo(upperB.x, upperB.y)
+                            lineTo(lowerB.x, lowerB.y); lineTo(lowerA.x, lowerA.y); close()
+                        }
+                        drawPath(envelope, if (resting) Color.Magenta.copy(alpha = .1f) else Muted.copy(alpha = .12f))
+                    }
+                    drawLine(Color.Black.copy(alpha = .65f), a, b, (2.5f + sunlight).dp.toPx(), StrokeCap.Round)
+                    drawLine(segmentColor, a, b, (1.1f + sunlight * .7f).dp.toPx(), StrokeCap.Round)
                     if (resting && (b - a).getDistance() < 1.dp.toPx()) drawCircle(Color.Magenta, 2.dp.toPx(), b)
                 }
             }
+            if (profileTrack.last().altitudeValid) {
             val current = locations.last().copy(x = locations.last().x.coerceIn(4.dp.toPx(), size.width - 4.dp.toPx()))
             drawCircle(color(points.last().altitudeM, .25f * (1 - pulse)), 8.dp.toPx() + 11.dp.toPx() * pulse, current)
             drawCircle(Color.White, 3.2.dp.toPx(), current)
             drawCircle(color(points.last().altitudeM), 2.1.dp.toPx(), current)
+            }
         }
         val labelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.rgb(233, 247, 255); textSize = 8.dp.toPx(); typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
+        val currentMeasurement = selected ?: state.position
+        val error = currentMeasurement?.altitudeUncertaintyM
+        val source = currentMeasurement?.altitudeSource
+        val errorLabel = if (error != null) "${source ?: "ALTITUDE"} ±%.1f m".format(error) +
+            if (source == "IGN") " · position" else "" else "INCERTITUDE NON FOURNIE"
+        drawContext.canvas.nativeCanvas.drawText(errorLabel, 2.dp.toPx(), labelPaint.textSize + 1.dp.toPx(), labelPaint)
         fun extremum(point: com.alban.ebike.model.AltitudePoint, label: String, above: Boolean) {
             val at = screen(point)
             drawCircle(color(point.altitudeM), 3.dp.toPx(), at)
@@ -499,7 +533,8 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
     val context = androidx.compose.ui.platform.LocalContext.current
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Relief & données") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text("Priorité : © IGN, RGE ALTI® 1 m — ressource ign_rge_alti_par_territoires de la Géoplateforme. Licence Ouverte Etalab. Acquisition variable selon la zone (LiDAR, photogrammétrie, etc.).\n\n" +
+            Text("Altitude GPS : conversion au niveau moyen de la mer sur Android 14 et versions suivantes ; GPS WGS84 indique une altitude brute non comparable directement à IGN. IGN utilise le référentiel altimétrique national et représente le sol : ponts et passages en hauteur peuvent différer. Les deux références corrigées restent légèrement différentes.\n\nProfil d’altitude : le trait fin indique l’altitude filtrée, la bande transparente représente l’incertitude disponible. GPS : précision verticale annoncée par Android, sans garantie de limite absolue. IGN : variation d’altitude du terrain dans la zone d’incertitude horizontale GPS ; l’erreur verticale propre au modèle IGN n’est pas fournie et s’y ajoute. La résolution du MNT n’est pas sa précision.\n\n" +
+                "Priorité : © IGN, RGE ALTI® 1 m — ressource ign_rge_alti_par_territoires de la Géoplateforme. Licence Ouverte Etalab. Acquisition variable selon la zone (LiDAR, photogrammétrie, etc.).\n\n" +
                 "Routes (gris clair) et cours d’eau (bleu) : © contributeurs OpenStreetMap, licence ODbL, via Overpass. Projection sur le sol IGN ; les tunnels sont omis et les ponts ne représentent pas leur hauteur réelle. Toutes les couches cochées restent actives en grande vue, dans une zone centrale limitée à environ 24 km de côté avant marge et avec un budget de géométrie par couche. Cache local de 64 Mio ; le serveur reçoit l’emprise consultée. Hors connexion, seules les zones déjà en cache sont disponibles.\n\n" +
                 "Cadastre optionnel : Parcellaire Express (PCI), IGN / DGFiP, Licence Ouverte Etalab. Références section / numéro, sans nom de propriétaire. Couverture locale autour du GPS ; cache de 64 Mio et limite de 2 000 parcelles par zone. L’activation transmet cette zone à IGN. Ce rendu n’a pas de valeur juridique.\n\n" +
                 "Détail adapté à la vue : 500 m, courbes tous les 5 m ; 2 km, tous les 10 m ; parcours complet, tous les 20 m. Le pas horizontal réellement utilisé dépend de la zone et apparaît dans le statut. Le cache plus détaillé est réutilisé. La source RGE ALTI à 1 m ne signifie pas que chaque sommet affiché est espacé de 1 m. Le relief est exagéré ×1,8 uniquement à l’écran.\n\n" +

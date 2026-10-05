@@ -24,6 +24,9 @@ data class TrackPoint(
     val positionValid: Boolean = true,
     val wheelSpeedKmh: Float? = null,
     val motorSpeedKmh: Float? = null,
+    val altitudeSource: String? = null,
+    val altitudeUncertaintyM: Float? = null,
+    val altitudeSegmentStart: Boolean = false,
 )
 
 
@@ -45,6 +48,8 @@ data class RideUiState(
     val wheelSpeedKmh: Float = 0f,
     val motorSpeedKmh: Float = 0f,
     val altitudeM: Float? = null,
+    val altitudeSource: String? = null,
+    val altitudeUncertaintyM: Float? = null,
     val inclinePercent: Float = 0f,
     val inclineValid: Boolean = false,
     val distanceM: Double = 0.0,

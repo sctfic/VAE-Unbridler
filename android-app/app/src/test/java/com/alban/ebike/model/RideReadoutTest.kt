@@ -55,4 +55,15 @@ class RideReadoutTest {
         assertTrue(shown.resting); assertEquals(45000L, shown.restTimeMs!!)
     }
 
+    @Test fun altitudeUncertaintyFollowsTheSelectedPointAndItsSource() {
+        val current = live.copy(altitudeSource = "GPS", altitudeUncertaintyM = 2.5f)
+        assertEquals(2.5f, RideReadout.from(current).altitudeUncertaintyM!!, 0f)
+        val point = TrackPoint(0.0, 0.0, 180f, 1000,
+            altitudeSource = "IGN", altitudeUncertaintyM = .4f)
+        val shown = RideReadout.from(current, point)
+        assertEquals("IGN", shown.altitudeSource)
+        assertEquals(.4f, shown.altitudeUncertaintyM!!, 0f)
+        assertNull(RideReadout.from(current, point.copy(altitudeUncertaintyM = null)).altitudeUncertaintyM)
+    }
+
 }

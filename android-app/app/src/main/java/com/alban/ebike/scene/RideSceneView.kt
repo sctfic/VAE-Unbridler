@@ -16,7 +16,7 @@ import javax.microedition.khronos.opengles.GL10
 import kotlin.math.*
 
 class RideSceneView(context: Context) : GLSurfaceView(context) {
-    private val sceneRenderer = SceneRenderer()
+    private val sceneRenderer = SceneRenderer(context.resources.displayMetrics.density)
     var onResetRequested: () -> Unit = {}
     var onViewModeRequested: () -> Unit = {}
     var onOptionsRequested: () -> Unit = {}
@@ -103,7 +103,7 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
 
 data class CameraPose(val heading: Double = 0.0, val tilt: Double = TrackCamera.TILT)
 
-private class SceneRenderer : GLSurfaceView.Renderer {
+private class SceneRenderer(private val density: Float) : GLSurfaceView.Renderer {
     @Volatile var visibleLabels: List<com.alban.ebike.terrain.ScreenLabel> = emptyList()
     var onFrameReady: (Long) -> Unit = {}
     val orbit = SceneOrbit()
@@ -135,6 +135,10 @@ private class SceneRenderer : GLSurfaceView.Renderer {
     private var maxLineWidth = 1f
     private var positionHandle = 0
     private var colorHandle = 0
+    private var neighborHandle = 0
+    private var sideHandle = 0
+    private var viewportWidth = 1f
+    private var viewportHeight = 1f
     private val uniforms = HashMap<String, Int>()
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         try {
@@ -155,8 +159,10 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             positionHandle = glGetAttribLocation(program, "a_position")
             lightHandle = glGetAttribLocation(program, "a_light")
             colorHandle = glGetAttribLocation(program, "a_color")
+            neighborHandle = glGetAttribLocation(program, "a_neighbor")
+            sideHandle = glGetAttribLocation(program, "a_side")
             uniforms.clear()
-            listOf("u_center", "u_camera", "u_color", "u_points", "u_size", "u_lift", "u_tilt", "u_targetY", "u_sunlight").forEach { uniforms[it] = glGetUniformLocation(program, it) }
+            listOf("u_center", "u_camera", "u_color", "u_points", "u_size", "u_lift", "u_tilt", "u_targetY", "u_sunlight", "u_viewport", "u_ribbonWidth").forEach { uniforms[it] = glGetUniformLocation(program, it) }
             val widths = FloatArray(2); glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, widths, 0); maxLineWidth = widths[1]
         } catch (error: Exception) { program = 0; Log.e("EBikeScene", "GL initialization failed", error) }
         glClearColor(.018f, .038f, .064f, 1f)
@@ -164,6 +170,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL)
     }
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        viewportWidth = width.coerceAtLeast(1).toFloat(); viewportHeight = height.coerceAtLeast(1).toFloat()
         glViewport(0, 0, width, height); aspect = width.toDouble() / height.coerceAtLeast(1)
     }
     override fun onDrawFrame(gl: GL10?) {
@@ -180,10 +187,18 @@ private class SceneRenderer : GLSurfaceView.Renderer {
             fittedHeading = Double.NaN
             val arrays = listOf(next.surface, next.grid, next.contours, next.route, next.marker, next.routeColors, next.roads, next.waterways, next.paths, next.buildings, next.parcels)
             val previousArrays = previous?.let { listOf(it.surface, it.grid, it.contours, it.route, it.marker, it.routeColors, it.roads, it.waterways, it.paths, it.buildings, it.parcels) }
+            val previousRibbon = buffers.drop(11)
             buffers = arrays.mapIndexed { i, values ->
                 if (previousArrays?.get(i) === values && buffers.size > i) buffers[i]
                 else ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
             }
+            val ribbonBuffers = if (previous?.route === next.route && previous.routeColors === next.routeColors && previousRibbon.size == 4) previousRibbon
+                else RouteRibbon.build(next.route, next.routeColors).let { ribbon ->
+                    listOf(ribbon.positions, ribbon.colors, ribbon.neighbors, ribbon.sides).map { values ->
+                        ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
+                    }
+                }
+            buffers = buffers + ribbonBuffers
             if (previous?.surface !== next.surface) {
             val light = FloatArray(next.surface.size / 3)
             for (i in next.surface.indices step 9) {
@@ -239,13 +254,25 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         glUniform3f(uniforms.getValue("u_center"), scene.center.east.toFloat(), scene.center.north.toFloat(), scene.center.height.toFloat())
         glUniform4f(uniforms.getValue("u_camera"), sin(heading).toFloat(), cos(heading).toFloat(), (distance / orbit.zoom).toFloat(), aspect.toFloat())
         glUniform2f(uniforms.getValue("u_tilt"), sin(orbit.tilt).toFloat(), cos(orbit.tilt).toFloat())
+        glUniform2f(uniforms.getValue("u_viewport"), viewportWidth, viewportHeight)
         glEnableVertexAttribArray(positionHandle)
         fun draw(index: Int, primitive: Int, color: FloatArray, width: Float = 1f, lift: Float = 0f, pointSize: Float = 1f, colored: Boolean = false) {
             val buffer = buffers[index]
             if (buffer.capacity() == 0) return
-            if (colored && buffers[5].capacity() == buffer.capacity()) {
+            val ribbon = index == 11
+            if (ribbon) {
+                glEnableVertexAttribArray(neighborHandle); glEnableVertexAttribArray(sideHandle)
+                glVertexAttribPointer(neighborHandle, 3, GL_FLOAT, false, 0, buffers[13])
+                glVertexAttribPointer(sideHandle, 1, GL_FLOAT, false, 0, buffers[14])
+            } else {
+                glDisableVertexAttribArray(neighborHandle); glDisableVertexAttribArray(sideHandle)
+                glVertexAttrib1f(sideHandle, 0f)
+            }
+            glUniform1f(uniforms.getValue("u_ribbonWidth"), width * density * (1 + sunlight * .5f))
+            val shades = buffers[if (ribbon) 12 else 5]
+            if (colored && shades.capacity() == buffer.capacity()) {
                 glEnableVertexAttribArray(colorHandle)
-                glVertexAttribPointer(colorHandle, 3, GL_FLOAT, false, 0, buffers[5])
+                glVertexAttribPointer(colorHandle, 3, GL_FLOAT, false, 0, shades)
             } else { glDisableVertexAttribArray(colorHandle); glVertexAttrib3f(colorHandle, 1f, 1f, 1f) }
             val adjusted = color.copyOf()
             if (primitive != GL_TRIANGLES) {
@@ -273,8 +300,7 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         draw(1, GL_LINES, floatArrayOf(.10f, .42f, .50f, .34f))
         draw(2, GL_LINES, floatArrayOf(.18f, .71f, .76f, .65f))
         draw(6, GL_LINES, floatArrayOf(.72f, .80f, .84f, .8f), 2f)
-        // Cartographic overlay: draped water must remain readable at regional scales behind relief.
-        glDisable(GL_DEPTH_TEST)
+        // Water is draped over the terrain and occluded by foreground relief.
         draw(7, GL_LINES, floatArrayOf(.12f, .72f, 1f, 1f), 4f, 1f)
         glEnable(GL_DEPTH_TEST)
         draw(8, GL_LINES, floatArrayOf(.78f, .66f, .38f, .75f), 1f)
@@ -282,11 +308,11 @@ private class SceneRenderer : GLSurfaceView.Renderer {
         draw(10, GL_LINES, floatArrayOf(.95f, .65f, .34f, .8f), 1f)
         val rgb = if (scene.speedMode) floatArrayOf(1f, .23f, .30f) else floatArrayOf(.25f, .79f, 1f)
         // Screen-space widths stay readable as the camera pulls away.
-        draw(3, GL_LINES, floatArrayOf(0f, 0f, .02f, .8f), 9f, -1.5f)
+        draw(11, GL_TRIANGLES, floatArrayOf(0f, 0f, .02f, .8f), 5f, -1.5f)
         glDisable(GL_DEPTH_TEST) // Route and rider remain identifiable behind ridges.
-        draw(3, GL_LINES, floatArrayOf(1f, 1f, 1f, .13f), 14f, colored = true)
-        draw(3, GL_LINES, floatArrayOf(1f, 1f, 1f, .35f), 8f, colored = true)
-        draw(3, GL_LINES, floatArrayOf(1f, 1f, 1f, 1f), 4f, colored = true)
+        draw(11, GL_TRIANGLES, floatArrayOf(1f, 1f, 1f, .13f), 8f, colored = true)
+        draw(11, GL_TRIANGLES, floatArrayOf(1f, 1f, 1f, .35f), 5f, colored = true)
+        draw(11, GL_TRIANGLES, floatArrayOf(1f, 1f, 1f, 1f), 3f, colored = true)
         val phase = ((SystemClock.uptimeMillis() % 2200) / 2200f)
         draw(4, GL_POINTS, floatArrayOf(rgb[0], rgb[1], rgb[2], .3f * (1 - phase)), pointSize = 30 + 35 * phase)
         draw(4, GL_POINTS, floatArrayOf(rgb[0], rgb[1], rgb[2], 1f), pointSize = 17f)
@@ -299,6 +325,10 @@ private class SceneRenderer : GLSurfaceView.Renderer {
     companion object {
         private const val VERTEX = """
             attribute vec3 a_position;
+            attribute vec3 a_neighbor;
+            attribute float a_side;
+            uniform vec2 u_viewport;
+            uniform float u_ribbonWidth;
             attribute float a_light;
             attribute vec3 a_color;
             varying vec3 v_color;
@@ -321,6 +351,21 @@ private class SceneRenderer : GLSurfaceView.Renderer {
                 float nearPlane = max(0.5, u_camera.z * 0.001);
                 gl_Position = vec4(right * 1.9 / u_camera.w, vertical * 1.9 + u_targetY * depth,
                     depth - 2.0 * nearPlane, depth);
+                if (abs(a_side) > 0.5) {
+                    vec3 q = a_neighbor - u_center;
+                    q.z += u_lift;
+                    float qr = q.x * u_camera.y - q.y * u_camera.x;
+                    float qf = q.x * u_camera.x + q.y * u_camera.y;
+                    float qv = qf * u_tilt.x + q.z * u_tilt.y;
+                    float qd = u_camera.z + qf * u_tilt.y - q.z * u_tilt.x;
+                    vec2 other = vec2(qr * 1.9 / u_camera.w, qv * 1.9 + u_targetY * qd) / max(qd, nearPlane);
+                    vec2 direction = (other - gl_Position.xy / max(depth, nearPlane)) * u_viewport;
+                    float lengthPixels = length(direction);
+                    if (lengthPixels > 0.001) {
+                        vec2 normal = vec2(-direction.y, direction.x) / lengthPixels;
+                        gl_Position.xy += normal * a_side * u_ribbonWidth / u_viewport * depth;
+                    }
+                }
                 gl_PointSize = u_size;
                 v_fog = clamp(depth / (u_camera.z * 3.0), 0.0, 0.82);
                 v_height = a_position.z;

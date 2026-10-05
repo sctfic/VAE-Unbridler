@@ -4,10 +4,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AltitudeQualityTest {
-    @Test fun repeatedAltitudeDuringTravelBecomesSuspectAndRecoveryIsConfirmed() {
+    @Test fun repeatedAltitudeIsAllowedButLargeJumpRequiresRecovery() {
         val filter = AltitudeQuality()
         for (i in 0..19) filter.accept(i * 1000L, i * 5.0, 230.100006, 5f, false)
-        assertFalse(filter.accept(20000, 100.0, 230.100006, 5f, false))
+        assertTrue(filter.accept(20000, 100.0, 230.100006, 5f, false))
         assertFalse(filter.accept(21000, 105.0, 242.0, 5f, false))
         assertFalse(filter.accept(22000, 110.0, 242.1, 5f, false))
         assertFalse(filter.accept(23000, 115.0, 242.2, 5f, false))

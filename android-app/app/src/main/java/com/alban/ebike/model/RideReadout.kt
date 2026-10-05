@@ -13,17 +13,19 @@ data class RideReadout(
     val historical: Boolean,
     val restTimeMs: Long? = null,
     val resting: Boolean = false,
+    val altitudeSource: String? = null,
+    val altitudeUncertaintyM: Float? = null,
 ) {
     companion object {
         fun from(state: RideUiState, selected: TrackPoint? = null): RideReadout = if (selected == null) {
             RideReadout(state.displayedSpeedKmh, state.displayedSpeedSource,
                 state.gpsSpeedValid && state.gpsSpeedApproximate, state.altitudeM,
                 state.inclinePercent.takeIf { state.inclineValid }, state.distanceM,
-                state.elevationGainM, state.movingTimeMs, false, state.restTimeMs, state.resting)
+                state.elevationGainM, state.movingTimeMs, false, state.restTimeMs, state.resting, state.altitudeSource, state.altitudeUncertaintyM)
         } else {
             RideReadout(selected.speedKmh, selected.speedSource ?: "GPS", selected.speedApproximate,
                 selected.altitudeM.takeIf { selected.altitudeValid }, selected.gradePercent,
-                selected.distanceM, selected.elevationGainM, selected.movingTimeMs, true, selected.restTimeMs, selected.resting)
+                selected.distanceM, selected.elevationGainM, selected.movingTimeMs, true, selected.restTimeMs, selected.resting, selected.altitudeSource, selected.altitudeUncertaintyM)
         }
     }
 }

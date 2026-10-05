@@ -22,8 +22,13 @@ class RideLocationEngine(context: Context) {
     private val appContext = context.applicationContext
     private val client: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(appContext)
-    private var started = false
-    private var lastFixMs = 0L
+    @Volatile private var started = false
+    @Volatile private var generation = 0
+    private var worker: android.os.HandlerThread? = null
+    private val altitudeConverter by lazy {
+        if (android.os.Build.VERSION.SDK_INT >= 34) android.location.altitude.AltitudeConverter() else null
+    }
+    @Volatile private var lastFixMs = 0L
     private var lastHeartbeatMs = 0L
     private val locationManager = appContext.getSystemService(LocationManager::class.java)
     init {
@@ -54,7 +59,17 @@ class RideLocationEngine(context: Context) {
         override fun onLocationResult(result: LocationResult) {
             if (!started) return
             lastFixMs = SystemClock.elapsedRealtime()
-            result.locations.forEach(RideStateStore::ingestLocation)
+            val epoch = generation
+            val locations = result.locations.map { original ->
+                android.location.Location(original).also { location ->
+                    if (android.os.Build.VERSION.SDK_INT >= 34 && location.hasAltitude() && !location.hasMslAltitude()) {
+                        try { altitudeConverter?.addMslAltitudeToLocation(appContext, location) }
+                        catch (error: java.io.IOException) { GpsDebugLog.record("MSL conversion unavailable: ${error.javaClass.simpleName}") }
+                        catch (error: IllegalArgumentException) { GpsDebugLog.record("MSL conversion invalid fix") }
+                    }
+                }
+            }
+            handler.post { if (started && generation == epoch) locations.forEach(RideStateStore::ingestLocation) }
         }
         override fun onLocationAvailability(availability: LocationAvailability) {
             GpsDebugLog.record("provider available=${availability.isLocationAvailable}")
@@ -71,7 +86,9 @@ class RideLocationEngine(context: Context) {
         GpsDebugLog.record("START model=${android.os.Build.MODEL} api=${android.os.Build.VERSION.SDK_INT} " +
             "locationEnabled=${locationManager.isLocationEnabled}")
         lastFixMs = 0L
+        generation++
         started = true
+        worker = android.os.HandlerThread("GPS-altitude").apply { start() }
         RideStateStore.resetGpsSpeed()
         handler.removeCallbacks(staleCheck)
         handler.post(staleCheck)
@@ -83,10 +100,11 @@ class RideLocationEngine(context: Context) {
             .setWaitForAccurateLocation(false)
             .build()
         try {
-            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+            client.requestLocationUpdates(request, callback, worker!!.looper)
                 .addOnSuccessListener { GpsDebugLog.record("SUBSCRIBED high accuracy interval=500ms") }
                 .addOnFailureListener {
                     started = false
+                    worker?.quitSafely(); worker = null
                     RideStateStore.setGpsStatus("GPS indisponible · vérifier la localisation")
                     Log.e("EBikeGPS", "Location subscription failed", it)
                     GpsDebugLog.record("SUBSCRIBE FAILED ${it.javaClass.simpleName}: ${it.message}")
@@ -94,6 +112,7 @@ class RideLocationEngine(context: Context) {
         } catch (error: SecurityException) {
             GpsDebugLog.record("SECURITY ${error.message}")
             started = false
+            worker?.quitSafely(); worker = null
             RideStateStore.setGpsStatus("Autorisation GPS nécessaire")
         }
     }
@@ -102,6 +121,8 @@ class RideLocationEngine(context: Context) {
         GpsDebugLog.record("STOP location service")
         handler.removeCallbacks(staleCheck)
         started = false
+        generation++
+        worker?.quitSafely(); worker = null
         RideStateStore.resetGpsSpeed()
         client.removeLocationUpdates(callback)
     }

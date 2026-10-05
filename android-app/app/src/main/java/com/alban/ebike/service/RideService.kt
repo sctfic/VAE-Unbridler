@@ -40,7 +40,7 @@ class RideService : Service() {
     private var shuttingDown = false
     private var notificationStarted = false
     private var dashboardOpenedForConnection = false
-    private var locationStarted = false
+    @Volatile private var locationStarted = false
     private var associationPending = false
 
     override fun onCreate() {
@@ -49,6 +49,35 @@ class RideService : Service() {
         createNotificationChannel()
         locationEngine = RideLocationEngine(this)
         settings = BikeSettingsStore(this)
+        serviceScope.launch {
+            val source = com.alban.ebike.terrain.IgnTerrainSource(this@RideService)
+            val tileStore = com.alban.ebike.terrain.ElevationTileStore(java.io.File(filesDir, "elevation-tiles-v1"))
+            var grid: com.alban.ebike.terrain.TerrainGrid? = null
+            while (isActive) {
+                val position = RideStateStore.state.value.position
+                if (position != null && locationStarted) {
+                    val current = grid
+                    val p = current?.let { com.alban.ebike.scene.GeoFrame.local(position.latitude, position.longitude, it.originLat, it.originLon) }
+                    if (current == null || p == null || current.sample(p.east, p.north) == null ||
+                        kotlin.math.abs(p.east) > current.halfSizeM - 80 || kotlin.math.abs(p.north) > current.halfSizeM - 80) {
+                        val cached = com.alban.ebike.terrain.RideElevation.cachedGrid(tileStore, position.latitude, position.longitude)
+                        if (cached != null) {
+                            grid = cached
+                            RideStateStore.setElevationGrid(cached)
+                        } else {
+                            val loaded = source.load(position.latitude, position.longitude,
+                                com.alban.ebike.terrain.RideElevation.HALF_SIZE, com.alban.ebike.terrain.RideElevation.SIZE)
+                            if (loaded != null && loaded.halfSizeM * 2 / (loaded.size - 1) <= 5.01) {
+                                grid = com.alban.ebike.terrain.TerrainGrid(loaded.originLat, loaded.originLon,
+                                    loaded.halfSizeM, loaded.size, loaded.heights, "IGN", true)
+                                RideStateStore.setElevationGrid(grid)
+                            }
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(2000)
+            }
+        }
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "$packageName:ride",
@@ -175,7 +204,9 @@ class RideService : Service() {
     }
 
     private fun shutdown() {
-        if (shuttingDown) return
+        if (shuttingDown) {
+            return
+        }
         shuttingDown = true
         connectedBike = null
         notificationStarted = false
