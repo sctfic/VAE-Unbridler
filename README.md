@@ -48,7 +48,7 @@ L’ESP32 démarre toujours en Standard ; une déconnexion Bluetooth conserve le
 Les deux logiciels doivent être mis à jour. Vérifier les transitions sur banc, à l’arrêt,
 avant utilisation ; le double toucher peut aussi être reconnu en roulant.
 
-GPIO 6 est une sortie logique 3,3 V. Elle doit piloter l'entrée d'un relais PhotoMOS, d'un relais statique ou d'une interface isolée équivalente. La sortie isolée remplace le contact sec du capteur d'origine.
+GPIO 6 est une sortie logique 3,3 V. Sur la nouvelle carte, elle pilote un commutateur optique CMS isolé, sans pièce mécanique. Sa sortie est non polarisée : les deux fils moteur sont interchangeables. Vérifier son fonctionnement avec le capteur réel avant raccordement définitif.
 
 **Ne jamais relier directement GPIO 6 aux fils du contrôleur et ne jamais court-circuiter VCC avec GND.** Le schéma conseillé est dans [`firmware-esp32/HARDWARE.md`](firmware-esp32/HARDWARE.md).
 

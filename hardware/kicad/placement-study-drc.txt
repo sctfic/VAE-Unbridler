@@ -1,0 +1,42 @@
+** Drc report for placement_study_NOT_FOR_FABRICATION.kicad_pcb **
+** Created on 2026-10-28T22:46:44 **
+** Report includes: Errors, Warnings **
+
+** Found 0 DRC violations **
+
+** Found 6 unconnected pads **
+[unconnected_items]: Missing connection between items
+    Local override; error
+    @(3.0500 mm, 14.3200 mm): PTH pad SH [GND] of J1
+    @(7.2300 mm, 14.3200 mm): PTH pad SH [GND] of J1
+[unconnected_items]: Missing connection between items
+    Local override; error
+    @(7.2300 mm, 5.6800 mm): PTH pad SH [GND] of J1
+    @(3.0500 mm, 5.6800 mm): PTH pad SH [GND] of J1
+[unconnected_items]: Missing connection between items
+    Local override; error
+    @(7.2300 mm, 14.3200 mm): PTH pad SH [GND] of J1
+    @(8.1450 mm, 13.2500 mm): Pad B1 [GND] of J1 on F.Cu
+[unconnected_items]: Missing connection between items
+    Local override; error
+    @(8.1450 mm, 6.7500 mm): Pad A1 [GND] of J1 on F.Cu
+    @(7.2300 mm, 5.6800 mm): PTH pad SH [GND] of J1
+[unconnected_items]: Missing connection between items
+    Local override; error
+    @(8.1450 mm, 13.2500 mm): Pad B1 [GND] of J1 on F.Cu
+    @(8.1450 mm, 6.7500 mm): Pad A1 [GND] of J1 on F.Cu
+[unconnected_items]: Missing connection between items
+    Local override; error
+    @(8.1450 mm, 7.5500 mm): Pad A4 [USB_VBUS] of J1 on F.Cu
+    @(8.1450 mm, 12.4500 mm): Pad B4 [USB_VBUS] of J1 on F.Cu
+
+** Found 0 Footprint errors **
+
+** Ignored checks **
+    - Footprint has no courtyard defined
+    - Track endpoint not centered on via
+    - Tuning profile track geometries
+    - Footprint doesn't match symbol's footprint filters
+    - Footprint component type doesn't match footprint pads
+
+** End of Report **

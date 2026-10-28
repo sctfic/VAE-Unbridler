@@ -18,7 +18,7 @@ constexpr char kTag[] = "pulse";
 constexpr uint64_t kEarliestTaskAlarmUs = 20;
 
 inline void IRAM_ATTR set_contact_closed(bool closed) {
-    // GPIO 6 controls the optocoupler/PhotoMOS LED. The external isolated output
+    // GPIO 6 controls the optocoupler LED. The external isolated output
     // is the only component connected to the controller's sensor terminals.
     gpio_ll_set_level(&GPIO, kMotorContactPin, closed ? 1 : 0);
 }

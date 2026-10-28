@@ -8,6 +8,7 @@ android-app/keystore/
 
 # ESP-IDF
 firmware-esp32/build/
+firmware-esp32/build-*/
 firmware-esp32/sdkconfig
 
 # Local setup downloads
@@ -16,3 +17,4 @@ tools/.downloads/
 # IDEs
 .idea/
 *.iml
+hardware/.venv/

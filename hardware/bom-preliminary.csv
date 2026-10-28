@@ -1,0 +1,22 @@
+Designator,Quantity,Value,Description,Footprint,Manufacturer,MPN,JLCPCB Part,Assembly note
+U1,1,ESP32-S3FH4R2,Wi-Fi and BLE MCU with 4 MB Flash and 2 MB PSRAM,QFN-56 7x7 mm,Espressif Systems,ESP32-S3FH4R2,C3013940,MSL3 and X-ray inspection
+U2,1,AP63203,3.3 V 2 A synchronous buck 3.8-32 V,TSOT-23-6,Diodes Incorporated,AP63203WU-7,C780769,Use manufacturer reference layout
+U3,1,3.3 V 600 mA,USB input LDO,SOT-25-5,Diodes Incorporated,AP2112K-3.3TRG1,C51118,EN tied to VBUS; 1 uF input and output
+U4,1,TPS2116,2.5 A priority power multiplexer,SOT-5X3-8,Texas Instruments,TPS2116DRLR,C3235557,USB rail on VIN1; MODE to VIN1; PR1 divider 180k/100k
+U5,1,Bidirectional optically isolated MOS switch,Non-polarized motor signal,SOP-4,Panasonic Industry,AQY222R1SX,C719598,Verify 5 mA input drive and output timing over real conditions
+U5_ALT,0,Bidirectional optically isolated MOS switch,JLC alternative pending approval,SOP-4,SUPSiC,GAQY212GS,C7435107,Verify footprint pinout datasheet revision and lot performance before substitution
+Q1,1,NPN,Optical switch LED driver,SOT-23,Nexperia,MMBT3904,TBD,Validate GPIO high level and transistor saturation
+J1,1,USB-C USB2 receptacle,Programming and USB power,USB-C 16-pin,HRO,TYPE-C-31-M-12,C165948,USB2-only
+Y1,1,40 MHz 10 ppm 10 pF,ESP32 main crystal,2016-4,Murata,XRCGB40M000F1S1CR0,C1870448,Load capacitors are tuning values
+AE1,1,2.4 GHz chip antenna,Ceramic antenna 50 ohm,3216,Johanson Technology,2450AT18A0100001E,C89334 uses legacy MPN,Footprint-compatible current MPN; requires RF tuning
+L1,1,3.9 uH 3.7 A rated,Buck power inductor,5x5 mm,APV,ANR5040T3R9M,C7427132,Shielded; 4.2 A saturation; procurement and temperature margins to verify
+F1,1,0.25 A hold,Resettable input fuse,1206,TBD,TBD,TBD,Protects field wiring
+D1,1,40 V 1 A,Reverse-polarity series Schottky,SOD-123,Diodes Incorporated,B140-13-F,TBD,SS14-compatible reputable part
+D2,1,18 V TVS,12 V input transient clamp,SOD-123FL,ZHIDE,SMF18A,C5161227,200 W prototype option
+D3,1,USB ESD,Low-capacitance two-line USB ESD array,SOT-23-6,STMicroelectronics,USBLC6-2SC6,TBD,Do not substitute with high-capacitance TVS
+D4,1,5 V ESD,Wheel cable ESD clamp,SOD-323,TBD,TBD,TBD,Place at WHEEL pad
+LED1,1,Red,Wheel-contact indicator,0603,TBD,TBD,TBD,TBD
+LED2,1,Green,Output-pulse indicator,0603,TBD,TBD,TBD,TBD
+LED3,1,Blue,Bluetooth-connected indicator,0603,TBD,TBD,TBD,TBD
+SW1,1,BOOT,Normally-open tactile switch,2.6x1.6 mm,TBD,TBD,TBD,TBD
+SW2,1,RESET,Normally-open tactile switch,2.6x1.6 mm,TBD,TBD,TBD,TBD
