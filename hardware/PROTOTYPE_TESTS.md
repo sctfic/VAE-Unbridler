@@ -20,6 +20,14 @@ has yet been performed.
 | Radio | Measure antenna match and BLE performance in final enclosure with wiring | Record S11 and operating range; tune RF matching before production |
 | Environment | Check transient, ESD, vibration, water protection and temperature relevant to installation | No unsafe behavior or damage within defined test limits |
 
+For source switching, scope `3V3_USB`, `3V3_AUX`, `3V3`, and reset or boot
+indication with short ground connections. Exercise both insertion and removal
+of USB and loss/restoration of 12 V, in both source-voltage orders, including
+BLE traffic and the expected temperature range. Compare C30 alone with C30
+plus C31 after measuring their effective capacitance. Record minimum rail
+voltage, duration below 3.0 V and reboot events. Also test repeated power
+cycles and startup inrush; no bench result proves all production conditions.
+
 The optical switch is non-polarized and has voltage, current, leakage,
 on-resistance and switching-time limits. The reported 3–12 V sensor voltage
 is below the recommended operating limit; current and pulse duration still

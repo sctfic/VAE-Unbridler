@@ -2,7 +2,7 @@
 	(version "E")
 	(design
 		(source "C:\\Users\\Alban\\.codex\\worktrees\\bfac\\E-Bike\\hardware\\kicad\\power_study.kicad_sch")
-		(date "2026-10-28T22:43:07")
+		(date "2026-10-28T23:57:15")
 		(tool "Eeschema 10.0.7")
 		(sheet
 			(number "1")
@@ -79,7 +79,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -125,7 +125,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -171,7 +171,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -217,7 +217,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -263,7 +263,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -309,7 +309,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -355,7 +355,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(property
 				(name "dnp")
@@ -404,7 +404,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(property
 				(name "dnp")
@@ -453,7 +453,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -499,7 +499,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -545,7 +545,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -591,7 +591,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -637,7 +637,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -683,7 +683,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -729,7 +729,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -775,7 +775,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -821,7 +821,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -867,7 +867,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -913,7 +913,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -959,7 +959,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1005,7 +1005,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1051,7 +1051,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1097,7 +1097,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1143,7 +1143,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(property
 				(name "dnp")
@@ -1192,7 +1192,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(property
 				(name "dnp")
@@ -1241,7 +1241,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1287,7 +1287,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1333,7 +1333,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1379,13 +1379,108 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
 				(tstamps "/")
 			)
 			(tstamps "d98bbc27-923f-56f3-8f03-49b8b0044d45")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C30")
+			(value "22uF 10V bulk")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "C30")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "a6a05a44-4539-5842-b8f4-f1658933f9cd")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "C31")
+			(value "22uF 10V bulk DNP")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "C31")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(property
+				(name "dnp")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "ded455ea-35fe-58b4-a679-0f0bc4c857da")
 			(units
 				(unit
 					(name "A")
@@ -1425,7 +1520,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1471,7 +1566,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1517,7 +1612,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1575,7 +1670,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1621,7 +1716,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1667,7 +1762,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1758,7 +1853,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1804,7 +1899,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1850,7 +1945,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1896,7 +1991,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1942,7 +2037,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -1988,7 +2083,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2034,7 +2129,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2080,7 +2175,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2126,7 +2221,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2172,7 +2267,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2218,7 +2313,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2267,7 +2362,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2313,7 +2408,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2359,7 +2454,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2405,105 +2500,13 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
 				(tstamps "/")
 			)
 			(tstamps "118463ab-3530-5683-acf9-0a2d8aa481a6")
-			(units
-				(unit
-					(name "A")
-					(pins
-						(pin
-							(num "1")
-						)
-						(pin
-							(num "2")
-						)
-					)
-				)
-			)
-		)
-		(comp
-			(ref "R6")
-			(value "180k 1%")
-			(fields
-				(field
-					(name "Footprint")
-				)
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(libsource
-				(lib "draft")
-				(part "R6")
-				(description "")
-			)
-			(property
-				(name "Sheetname")
-				(value "Root")
-			)
-			(property
-				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
-			)
-			(sheetpath
-				(names "/")
-				(tstamps "/")
-			)
-			(tstamps "976e0532-6e1b-5123-9fcb-679adf2b136e")
-			(units
-				(unit
-					(name "A")
-					(pins
-						(pin
-							(num "1")
-						)
-						(pin
-							(num "2")
-						)
-					)
-				)
-			)
-		)
-		(comp
-			(ref "R7")
-			(value "100k 1%")
-			(fields
-				(field
-					(name "Footprint")
-				)
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(libsource
-				(lib "draft")
-				(part "R7")
-				(description "")
-			)
-			(property
-				(name "Sheetname")
-				(value "Root")
-			)
-			(property
-				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
-			)
-			(sheetpath
-				(names "/")
-				(tstamps "/")
-			)
-			(tstamps "d6317bf9-bd85-5bb0-8e59-da3bf20ac4d7")
 			(units
 				(unit
 					(name "A")
@@ -2543,7 +2546,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2589,7 +2592,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2635,7 +2638,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2681,7 +2684,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2727,7 +2730,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2773,7 +2776,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2819,7 +2822,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2865,7 +2868,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2911,7 +2914,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -2957,7 +2960,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3003,7 +3006,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3049,7 +3052,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3095,7 +3098,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3141,7 +3144,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3187,7 +3190,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3233,7 +3236,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3249,6 +3252,264 @@
 						)
 						(pin
 							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "TP1")
+			(value "TEST 3V3")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "TP1")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "4371429b-71ad-50d9-b5bb-a5c977218943")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "TP2")
+			(value "TEST GND")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "TP2")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "23d427b1-f418-58dc-98c6-7518bb4d4c3c")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "TP3")
+			(value "TEST EN")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "TP3")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "dd582452-3915-5a8c-90df-6743ae1006d5")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "TP4")
+			(value "TEST BOOT")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "TP4")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "67ce4d7f-03e7-514a-a92c-6cd2ac09104a")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "TP5")
+			(value "TEST TX")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "TP5")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "4803ea0b-dd20-5dc5-93ab-eff86fb4b220")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "TP6")
+			(value "TEST RX")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "draft")
+				(part "TP6")
+				(description "")
+			)
+			(property
+				(name "Sheetname")
+				(value "Root")
+			)
+			(property
+				(name "Sheetfile")
+				(value "power_study.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "6510ece9-1aaa-5fe0-867f-a4047308992a")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
 						)
 					)
 				)
@@ -3279,7 +3540,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3490,7 +3751,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3548,7 +3809,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3603,7 +3864,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3667,7 +3928,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -3719,7 +3980,7 @@
 			)
 			(property
 				(name "Sheetfile")
-				(value "hardware/kicad/power_study.kicad_sch")
+				(value "power_study.kicad_sch")
 			)
 			(sheetpath
 				(names "/")
@@ -4471,6 +4732,68 @@
 					(name "Reference") "C3")
 				(field
 					(name "Value") "100nF BST")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "1")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "2")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "C30")
+			(fields
+				(field
+					(name "Reference") "C30")
+				(field
+					(name "Value") "22uF 10V bulk")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "1")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "2")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "C31")
+			(fields
+				(field
+					(name "Reference") "C31")
+				(field
+					(name "Value") "22uF 10V bulk DNP")
 				(field
 					(name "Footprint")
 				)
@@ -5774,68 +6097,6 @@
 		)
 		(libpart
 			(lib "draft")
-			(part "R6")
-			(fields
-				(field
-					(name "Reference") "R6")
-				(field
-					(name "Value") "180k 1%")
-				(field
-					(name "Footprint")
-				)
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(pins
-				(pin
-					(num "1")
-					(name "1")
-					(type "passive")
-				)
-				(pin
-					(num "2")
-					(name "2")
-					(type "passive")
-				)
-			)
-		)
-		(libpart
-			(lib "draft")
-			(part "R7")
-			(fields
-				(field
-					(name "Reference") "R7")
-				(field
-					(name "Value") "100k 1%")
-				(field
-					(name "Footprint")
-				)
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(pins
-				(pin
-					(num "1")
-					(name "1")
-					(type "passive")
-				)
-				(pin
-					(num "2")
-					(name "2")
-					(type "passive")
-				)
-			)
-		)
-		(libpart
-			(lib "draft")
 			(part "R8")
 			(fields
 				(field
@@ -5954,6 +6215,162 @@
 				(pin
 					(num "2")
 					(name "2")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "TP1")
+			(fields
+				(field
+					(name "Reference") "TP1")
+				(field
+					(name "Value") "TEST 3V3")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "PAD")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "TP2")
+			(fields
+				(field
+					(name "Reference") "TP2")
+				(field
+					(name "Value") "TEST GND")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "PAD")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "TP3")
+			(fields
+				(field
+					(name "Reference") "TP3")
+				(field
+					(name "Value") "TEST EN")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "PAD")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "TP4")
+			(fields
+				(field
+					(name "Reference") "TP4")
+				(field
+					(name "Value") "TEST BOOT")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "PAD")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "TP5")
+			(fields
+				(field
+					(name "Reference") "TP5")
+				(field
+					(name "Value") "TEST TX")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "PAD")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "draft")
+			(part "TP6")
+			(fields
+				(field
+					(name "Reference") "TP6")
+				(field
+					(name "Value") "TEST RX")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "PAD")
 					(type "passive")
 				)
 			)
@@ -6505,7 +6922,12 @@
 			)
 		)
 	)
-	(libraries)
+	(libraries
+		(library
+			(logical "draft")
+			(uri "${KIPRJMOD}/draft.kicad_sym")
+		)
+	)
 	(nets
 		(net
 			(code "1")
@@ -6537,6 +6959,18 @@
 			)
 			(node
 				(ref "C29")
+				(pin "1")
+				(pinfunction "1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "C30")
+				(pin "1")
+				(pinfunction "1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "C31")
 				(pin "1")
 				(pinfunction "1_1")
 				(pintype "passive")
@@ -6575,6 +7009,12 @@
 				(ref "R9")
 				(pin "1")
 				(pinfunction "1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "TP1")
+				(pin "1")
+				(pinfunction "PAD_1")
 				(pintype "passive")
 			)
 			(node
@@ -6672,12 +7112,6 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "R6")
-				(pin "1")
-				(pinfunction "1_1")
-				(pintype "passive")
-			)
-			(node
 				(ref "U3")
 				(pin "5")
 				(pinfunction "VOUT_5")
@@ -6687,12 +7121,6 @@
 				(ref "U4")
 				(pin "3")
 				(pinfunction "VIN1_3")
-				(pintype "passive")
-			)
-			(node
-				(ref "U4")
-				(pin "5")
-				(pinfunction "MODE_5")
 				(pintype "passive")
 			)
 		)
@@ -6788,6 +7216,12 @@
 				(pintype "passive")
 			)
 			(node
+				(ref "TP4")
+				(pin "1")
+				(pinfunction "PAD_1")
+				(pintype "passive")
+			)
+			(node
 				(ref "U1")
 				(pin "5")
 				(pinfunction "GPIO0_5")
@@ -6854,6 +7288,12 @@
 				(ref "SW2")
 				(pin "1")
 				(pinfunction "1_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "TP3")
+				(pin "1")
+				(pinfunction "PAD_1")
 				(pintype "passive")
 			)
 			(node
@@ -7017,6 +7457,18 @@
 				(pintype "passive")
 			)
 			(node
+				(ref "C30")
+				(pin "2")
+				(pinfunction "2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "C31")
+				(pin "2")
+				(pinfunction "2_2")
+				(pintype "passive")
+			)
+			(node
 				(ref "C5")
 				(pin "2")
 				(pinfunction "-_2")
@@ -7161,12 +7613,6 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "R7")
-				(pin "2")
-				(pinfunction "2_2")
-				(pintype "passive")
-			)
-			(node
 				(ref "SW1")
 				(pin "2")
 				(pinfunction "2_2")
@@ -7176,6 +7622,12 @@
 				(ref "SW2")
 				(pin "2")
 				(pinfunction "2_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "TP2")
+				(pin "1")
+				(pinfunction "PAD_1")
 				(pintype "passive")
 			)
 			(node
@@ -7200,6 +7652,18 @@
 				(ref "U4")
 				(pin "1")
 				(pinfunction "GND_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U4")
+				(pin "4")
+				(pinfunction "PR1_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "U4")
+				(pin "5")
+				(pinfunction "MODE_5")
 				(pintype "passive")
 			)
 			(node
@@ -7319,29 +7783,6 @@
 		)
 		(net
 			(code "19")
-			(name "/MUX_PR1")
-			(class "Default")
-			(node
-				(ref "R6")
-				(pin "2")
-				(pinfunction "2_2")
-				(pintype "passive")
-			)
-			(node
-				(ref "R7")
-				(pin "1")
-				(pinfunction "1_1")
-				(pintype "passive")
-			)
-			(node
-				(ref "U4")
-				(pin "4")
-				(pinfunction "PR1_4")
-				(pintype "passive")
-			)
-		)
-		(net
-			(code "20")
 			(name "/OPTO_A")
 			(class "Default")
 			(node
@@ -7358,7 +7799,7 @@
 			)
 		)
 		(net
-			(code "21")
+			(code "20")
 			(name "/OPTO_BASE")
 			(class "Default")
 			(node
@@ -7381,7 +7822,7 @@
 			)
 		)
 		(net
-			(code "22")
+			(code "21")
 			(name "/OPTO_K")
 			(class "Default")
 			(node
@@ -7398,7 +7839,7 @@
 			)
 		)
 		(net
-			(code "23")
+			(code "22")
 			(name "/PULSE_CMD")
 			(class "Default")
 			(node
@@ -7427,7 +7868,7 @@
 			)
 		)
 		(net
-			(code "24")
+			(code "23")
 			(name "/RED_A")
 			(class "Default")
 			(node
@@ -7444,7 +7885,7 @@
 			)
 		)
 		(net
-			(code "25")
+			(code "24")
 			(name "/RF_3V3")
 			(class "Default")
 			(node
@@ -7479,7 +7920,7 @@
 			)
 		)
 		(net
-			(code "26")
+			(code "25")
 			(name "/RF_ANT")
 			(class "Default")
 			(node
@@ -7502,7 +7943,7 @@
 			)
 		)
 		(net
-			(code "27")
+			(code "26")
 			(name "/RF_LNA")
 			(class "Default")
 			(node
@@ -7525,7 +7966,7 @@
 			)
 		)
 		(net
-			(code "28")
+			(code "27")
 			(name "/RF_MATCHED")
 			(class "Default")
 			(node
@@ -7554,9 +7995,15 @@
 			)
 		)
 		(net
-			(code "29")
+			(code "28")
 			(name "/U0RXD")
 			(class "Default")
+			(node
+				(ref "TP6")
+				(pin "1")
+				(pinfunction "PAD_1")
+				(pintype "passive")
+			)
 			(node
 				(ref "U1")
 				(pin "50")
@@ -7565,9 +8012,15 @@
 			)
 		)
 		(net
-			(code "30")
+			(code "29")
 			(name "/U0TXD")
 			(class "Default")
+			(node
+				(ref "TP5")
+				(pin "1")
+				(pinfunction "PAD_1")
+				(pintype "passive")
+			)
 			(node
 				(ref "U1")
 				(pin "49")
@@ -7576,7 +8029,7 @@
 			)
 		)
 		(net
-			(code "31")
+			(code "30")
 			(name "/USB_CC1")
 			(class "Default")
 			(node
@@ -7593,7 +8046,7 @@
 			)
 		)
 		(net
-			(code "32")
+			(code "31")
 			(name "/USB_CC2")
 			(class "Default")
 			(node
@@ -7610,7 +8063,7 @@
 			)
 		)
 		(net
-			(code "33")
+			(code "32")
 			(name "/USB_DN")
 			(class "Default")
 			(node
@@ -7633,7 +8086,7 @@
 			)
 		)
 		(net
-			(code "34")
+			(code "33")
 			(name "/USB_DN_CONN")
 			(class "Default")
 			(node
@@ -7668,7 +8121,7 @@
 			)
 		)
 		(net
-			(code "35")
+			(code "34")
 			(name "/USB_DP")
 			(class "Default")
 			(node
@@ -7691,7 +8144,7 @@
 			)
 		)
 		(net
-			(code "36")
+			(code "35")
 			(name "/USB_DP_CONN")
 			(class "Default")
 			(node
@@ -7726,7 +8179,7 @@
 			)
 		)
 		(net
-			(code "37")
+			(code "36")
 			(name "/USB_VBUS")
 			(class "Default")
 			(node
@@ -7779,7 +8232,7 @@
 			)
 		)
 		(net
-			(code "38")
+			(code "37")
 			(name "/VDD_SPI")
 			(class "Default")
 			(node
@@ -7802,7 +8255,7 @@
 			)
 		)
 		(net
-			(code "39")
+			(code "38")
 			(name "/WHEEL_GPIO")
 			(class "Default")
 			(node
@@ -7831,7 +8284,7 @@
 			)
 		)
 		(net
-			(code "40")
+			(code "39")
 			(name "/WHEEL_RAW")
 			(class "Default")
 			(node
@@ -7860,7 +8313,7 @@
 			)
 		)
 		(net
-			(code "41")
+			(code "40")
 			(name "/XTAL_N")
 			(class "Default")
 			(node
@@ -7883,7 +8336,7 @@
 			)
 		)
 		(net
-			(code "42")
+			(code "41")
 			(name "/XTAL_P")
 			(class "Default")
 			(node
@@ -7900,7 +8353,7 @@
 			)
 		)
 		(net
-			(code "43")
+			(code "42")
 			(name "/XTAL_P_CRYSTAL")
 			(class "Default")
 			(node
@@ -7923,7 +8376,7 @@
 			)
 		)
 		(net
-			(code "44")
+			(code "43")
 			(name "unconnected-(AE1-ANCHOR_NC-Pad2)")
 			(class "Default")
 			(node
@@ -7934,7 +8387,7 @@
 			)
 		)
 		(net
-			(code "45")
+			(code "44")
 			(name "unconnected-(J1-SBU1-PadA8)")
 			(class "Default")
 			(node
@@ -7945,7 +8398,7 @@
 			)
 		)
 		(net
-			(code "46")
+			(code "45")
 			(name "unconnected-(J1-SBU2-PadB8)")
 			(class "Default")
 			(node
@@ -7956,7 +8409,7 @@
 			)
 		)
 		(net
-			(code "47")
+			(code "46")
 			(name "unconnected-(U1-GPIO1-Pad6)")
 			(class "Default")
 			(node
@@ -7967,7 +8420,7 @@
 			)
 		)
 		(net
-			(code "48")
+			(code "47")
 			(name "unconnected-(U1-GPIO2-Pad7)")
 			(class "Default")
 			(node
@@ -7978,7 +8431,7 @@
 			)
 		)
 		(net
-			(code "49")
+			(code "48")
 			(name "unconnected-(U1-GPIO3-Pad8)")
 			(class "Default")
 			(node
@@ -7989,7 +8442,7 @@
 			)
 		)
 		(net
-			(code "50")
+			(code "49")
 			(name "unconnected-(U1-GPIO4-Pad9)")
 			(class "Default")
 			(node
@@ -8000,7 +8453,7 @@
 			)
 		)
 		(net
-			(code "51")
+			(code "50")
 			(name "unconnected-(U1-GPIO7-Pad12)")
 			(class "Default")
 			(node
@@ -8011,7 +8464,7 @@
 			)
 		)
 		(net
-			(code "52")
+			(code "51")
 			(name "unconnected-(U1-GPIO8-Pad13)")
 			(class "Default")
 			(node
@@ -8022,7 +8475,7 @@
 			)
 		)
 		(net
-			(code "53")
+			(code "52")
 			(name "unconnected-(U1-GPIO9-Pad14)")
 			(class "Default")
 			(node
@@ -8033,7 +8486,7 @@
 			)
 		)
 		(net
-			(code "54")
+			(code "53")
 			(name "unconnected-(U1-GPIO10-Pad15)")
 			(class "Default")
 			(node
@@ -8044,7 +8497,7 @@
 			)
 		)
 		(net
-			(code "55")
+			(code "54")
 			(name "unconnected-(U1-GPIO11-Pad16)")
 			(class "Default")
 			(node
@@ -8055,7 +8508,7 @@
 			)
 		)
 		(net
-			(code "56")
+			(code "55")
 			(name "unconnected-(U1-GPIO12-Pad17)")
 			(class "Default")
 			(node
@@ -8066,7 +8519,7 @@
 			)
 		)
 		(net
-			(code "57")
+			(code "56")
 			(name "unconnected-(U1-GPIO13-Pad18)")
 			(class "Default")
 			(node
@@ -8077,7 +8530,7 @@
 			)
 		)
 		(net
-			(code "58")
+			(code "57")
 			(name "unconnected-(U1-GPIO14-Pad19)")
 			(class "Default")
 			(node
@@ -8088,7 +8541,7 @@
 			)
 		)
 		(net
-			(code "59")
+			(code "58")
 			(name "unconnected-(U1-GPIO15-Pad21)")
 			(class "Default")
 			(node
@@ -8099,7 +8552,7 @@
 			)
 		)
 		(net
-			(code "60")
+			(code "59")
 			(name "unconnected-(U1-GPIO16-Pad22)")
 			(class "Default")
 			(node
@@ -8110,7 +8563,7 @@
 			)
 		)
 		(net
-			(code "61")
+			(code "60")
 			(name "unconnected-(U1-GPIO17-Pad23)")
 			(class "Default")
 			(node
@@ -8121,7 +8574,7 @@
 			)
 		)
 		(net
-			(code "62")
+			(code "61")
 			(name "unconnected-(U1-GPIO18-Pad24)")
 			(class "Default")
 			(node
@@ -8132,7 +8585,7 @@
 			)
 		)
 		(net
-			(code "63")
+			(code "62")
 			(name "unconnected-(U1-GPIO33-Pad38)")
 			(class "Default")
 			(node
@@ -8143,7 +8596,7 @@
 			)
 		)
 		(net
-			(code "64")
+			(code "63")
 			(name "unconnected-(U1-GPIO34-Pad39)")
 			(class "Default")
 			(node
@@ -8154,7 +8607,7 @@
 			)
 		)
 		(net
-			(code "65")
+			(code "64")
 			(name "unconnected-(U1-GPIO35-Pad40)")
 			(class "Default")
 			(node
@@ -8165,7 +8618,7 @@
 			)
 		)
 		(net
-			(code "66")
+			(code "65")
 			(name "unconnected-(U1-GPIO36-Pad41)")
 			(class "Default")
 			(node
@@ -8176,7 +8629,7 @@
 			)
 		)
 		(net
-			(code "67")
+			(code "66")
 			(name "unconnected-(U1-GPIO37-Pad42)")
 			(class "Default")
 			(node
@@ -8187,7 +8640,7 @@
 			)
 		)
 		(net
-			(code "68")
+			(code "67")
 			(name "unconnected-(U1-GPIO38-Pad43)")
 			(class "Default")
 			(node
@@ -8198,7 +8651,7 @@
 			)
 		)
 		(net
-			(code "69")
+			(code "68")
 			(name "unconnected-(U1-GPIO39-Pad44)")
 			(class "Default")
 			(node
@@ -8209,7 +8662,7 @@
 			)
 		)
 		(net
-			(code "70")
+			(code "69")
 			(name "unconnected-(U1-GPIO40-Pad45)")
 			(class "Default")
 			(node
@@ -8220,7 +8673,7 @@
 			)
 		)
 		(net
-			(code "71")
+			(code "70")
 			(name "unconnected-(U1-GPIO41-Pad47)")
 			(class "Default")
 			(node
@@ -8231,7 +8684,7 @@
 			)
 		)
 		(net
-			(code "72")
+			(code "71")
 			(name "unconnected-(U1-GPIO42-Pad48)")
 			(class "Default")
 			(node
@@ -8242,7 +8695,7 @@
 			)
 		)
 		(net
-			(code "73")
+			(code "72")
 			(name "unconnected-(U1-SPICLK_INTERNAL-Pad33)")
 			(class "Default")
 			(node
@@ -8253,7 +8706,7 @@
 			)
 		)
 		(net
-			(code "74")
+			(code "73")
 			(name "unconnected-(U1-SPICLK_N-Pad36)")
 			(class "Default")
 			(node
@@ -8264,7 +8717,7 @@
 			)
 		)
 		(net
-			(code "75")
+			(code "74")
 			(name "unconnected-(U1-SPICLK_P-Pad37)")
 			(class "Default")
 			(node
@@ -8275,7 +8728,7 @@
 			)
 		)
 		(net
-			(code "76")
+			(code "75")
 			(name "unconnected-(U1-SPICS0_INTERNAL-Pad32)")
 			(class "Default")
 			(node
@@ -8286,7 +8739,7 @@
 			)
 		)
 		(net
-			(code "77")
+			(code "76")
 			(name "unconnected-(U1-SPICS1_INTERNAL-Pad28)")
 			(class "Default")
 			(node
@@ -8297,7 +8750,7 @@
 			)
 		)
 		(net
-			(code "78")
+			(code "77")
 			(name "unconnected-(U1-SPID_INTERNAL-Pad35)")
 			(class "Default")
 			(node
@@ -8308,7 +8761,7 @@
 			)
 		)
 		(net
-			(code "79")
+			(code "78")
 			(name "unconnected-(U1-SPIHD_INTERNAL-Pad30)")
 			(class "Default")
 			(node
@@ -8319,7 +8772,7 @@
 			)
 		)
 		(net
-			(code "80")
+			(code "79")
 			(name "unconnected-(U1-SPIQ_INTERNAL-Pad34)")
 			(class "Default")
 			(node
@@ -8330,7 +8783,7 @@
 			)
 		)
 		(net
-			(code "81")
+			(code "80")
 			(name "unconnected-(U1-SPIWP_INTERNAL-Pad31)")
 			(class "Default")
 			(node
@@ -8341,7 +8794,7 @@
 			)
 		)
 		(net
-			(code "82")
+			(code "81")
 			(name "unconnected-(U3-NC-Pad4)")
 			(class "Default")
 			(node
@@ -8352,7 +8805,7 @@
 			)
 		)
 		(net
-			(code "83")
+			(code "82")
 			(name "unconnected-(U4-ST-Pad8)")
 			(class "Default")
 			(node

@@ -2,7 +2,7 @@ Designator,Quantity,Value,Description,Footprint,Manufacturer,MPN,JLCPCB Part,Ass
 U1,1,ESP32-S3FH4R2,Wi-Fi and BLE MCU with 4 MB Flash and 2 MB PSRAM,QFN-56 7x7 mm,Espressif Systems,ESP32-S3FH4R2,C3013940,MSL3 and X-ray inspection
 U2,1,AP63203,3.3 V 2 A synchronous buck 3.8-32 V,TSOT-23-6,Diodes Incorporated,AP63203WU-7,C780769,Use manufacturer reference layout
 U3,1,3.3 V 600 mA,USB input LDO,SOT-25-5,Diodes Incorporated,AP2112K-3.3TRG1,C51118,EN tied to VBUS; 1 uF input and output
-U4,1,TPS2116,2.5 A priority power multiplexer,SOT-5X3-8,Texas Instruments,TPS2116DRLR,C3235557,USB rail on VIN1; MODE to VIN1; PR1 divider 180k/100k
+U4,1,TPS2116,2.5 A power multiplexer,SOT-5X3-8,Texas Instruments,TPS2116DRLR,C3235557,USB rail on VIN1; MODE and PR1 to GND; select higher voltage
 U5,1,Bidirectional optically isolated MOS switch,Non-polarized motor signal,SOP-4,Panasonic Industry,AQY222R1SX,C719598,Verify 5 mA input drive and output timing over real conditions
 U5_ALT,0,Bidirectional optically isolated MOS switch,JLC alternative pending approval,SOP-4,SUPSiC,GAQY212GS,C7435107,Verify footprint pinout datasheet revision and lot performance before substitution
 Q1,1,NPN,Optical switch LED driver,SOT-23,Nexperia,MMBT3904,TBD,Validate GPIO high level and transistor saturation
@@ -15,6 +15,8 @@ D1,1,40 V 1 A,Reverse-polarity series Schottky,SOD-123,Diodes Incorporated,B140-
 D2,1,18 V TVS,12 V input transient clamp,SOD-123FL,ZHIDE,SMF18A,C5161227,200 W prototype option
 D3,1,USB ESD,Low-capacitance two-line USB ESD array,SOT-23-6,STMicroelectronics,USBLC6-2SC6,TBD,Do not substitute with high-capacitance TVS
 D4,1,5 V ESD,Wheel cable ESD clamp,SOD-323,TBD,TBD,TBD,Place at WHEEL pad
+C30,1,22 uF 10 V X5R,3.3 V bulk reserve candidate,0805,Fenghua,0805X226M100NT,C503482,Check effective capacitance under DC bias and temperature
+C31,0,22 uF 10 V X5R,Optional parallel 3.3 V bulk reserve footprint,0805,Fenghua,0805X226M100NT,C503482,DNP initially; populate only if testing supports it
 LED1,1,Red,Wheel-contact indicator,0603,TBD,TBD,TBD,TBD
 LED2,1,Green,Output-pulse indicator,0603,TBD,TBD,TBD,TBD
 LED3,1,Blue,Bluetooth-connected indicator,0603,TBD,TBD,TBD,TBD

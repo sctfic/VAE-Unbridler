@@ -7,6 +7,8 @@ from pathlib import Path
 from uuid import uuid5, NAMESPACE_URL
 
 OUT = Path(__file__).parent / "kicad" / "power_study.kicad_sch"
+LIB_OUT = OUT.parent / "draft.kicad_sym"
+TABLE_OUT = OUT.parent / "sym-lib-table"
 
 
 def uid(name):
@@ -41,9 +43,7 @@ parts = [
     ("U3", "AP2112K-3.3TRG1", 95, 130, [("1", "VIN", "USB_VBUS"), ("2", "GND", "GND"), ("3", "EN", "USB_VBUS"), ("4", "NC", None), ("5", "VOUT", "3V3_USB")]),
     ("C9", "1uF", 155, 130, [("1", "+", "USB_VBUS"), ("2", "-", "GND")]),
     ("C10", "1uF", 215, 130, [("1", "+", "3V3_USB"), ("2", "-", "GND")]),
-    ("U4", "TPS2116DRLR", 275, 130, [("1", "GND", "GND"), ("2", "VOUT", "3V3"), ("3", "VIN1", "3V3_USB"), ("4", "PR1", "MUX_PR1"), ("5", "MODE", "3V3_USB"), ("6", "VIN2", "3V3_AUX"), ("7", "VOUT", "3V3"), ("8", "ST", None)]),
-    ("R6", "180k 1%", 35, 180, [("1", "1", "3V3_USB"), ("2", "2", "MUX_PR1")]),
-    ("R7", "100k 1%", 95, 180, [("1", "1", "MUX_PR1"), ("2", "2", "GND")]),
+    ("U4", "TPS2116DRLR", 275, 130, [("1", "GND", "GND"), ("2", "VOUT", "3V3"), ("3", "VIN1", "3V3_USB"), ("4", "PR1", "GND"), ("5", "MODE", "GND"), ("6", "VIN2", "3V3_AUX"), ("7", "VOUT", "3V3"), ("8", "ST", None)]),
     ("C11", "1uF", 155, 180, [("1", "+", "3V3_USB"), ("2", "-", "GND")]),
     ("C12", "1uF", 215, 180, [("1", "+", "3V3_AUX"), ("2", "-", "GND")]),
     ("C13", "1uF", 275, 180, [("1", "+", "3V3"), ("2", "-", "GND")]),
@@ -92,6 +92,8 @@ parts = [
     ("C27", "100nF CPU", 660, 130, [("1", "1", "3V3"), ("2", "2", "GND")]),
     ("C28", "100nF VDDA", 720, 130, [("1", "1", "3V3"), ("2", "2", "GND")]),
     ("C29", "10uF bulk", 780, 130, [("1", "1", "3V3"), ("2", "2", "GND")]),
+    ("C30", "22uF 10V bulk", 780, 175, [("1", "1", "3V3"), ("2", "2", "GND")]),
+    ("C31", "22uF 10V bulk DNP", 780, 220, [("1", "1", "3V3"), ("2", "2", "GND")]),
     ("C22", "1.5pF RF chip", 540, 175, [("1", "1", "RF_LNA"), ("2", "2", "GND")]),
     ("L2", "2.4nH RF chip", 600, 175, [("1", "1", "RF_LNA"), ("2", "2", "RF_MATCHED")]),
     ("C23", "1.5pF RF chip", 660, 175, [("1", "1", "RF_MATCHED"), ("2", "2", "GND")]),
@@ -99,6 +101,12 @@ parts = [
     ("R21", "0R antenna", 600, 220, [("1", "1", "RF_MATCHED"), ("2", "2", "RF_ANT")]),
     ("C25", "RF antenna DNP", 660, 220, [("1", "1", "RF_ANT"), ("2", "2", "GND")]),
     ("AE1", "2450AT18A0100001E", 720, 220, [("1", "FEED", "RF_ANT"), ("2", "ANCHOR_NC", None)]),
+    ("TP1", "TEST 3V3", 35, 445, [("1", "PAD", "3V3")]),
+    ("TP2", "TEST GND", 95, 445, [("1", "PAD", "GND")]),
+    ("TP3", "TEST EN", 155, 445, [("1", "PAD", "CHIP_PU")]),
+    ("TP4", "TEST BOOT", 215, 445, [("1", "PAD", "BOOT")]),
+    ("TP5", "TEST TX", 275, 445, [("1", "PAD", "U0TXD")]),
+    ("TP6", "TEST RX", 335, 445, [("1", "PAD", "U0RXD")]),
     ("U1", "ESP32-S3FH4R2 - provisional pinout", 490, 190, [
         ("1", "LNA_IN", "RF_LNA"), ("2", "VDD3P3", "RF_3V3"), ("3", "VDD3P3", "RF_3V3"),
         ("4", "CHIP_PU", "CHIP_PU"), ("5", "GPIO0", "BOOT"), ("6", "GPIO1", None),
@@ -135,16 +143,19 @@ def main():
          f' (uuid "{root}") (paper "A1")',
          ' (title_block (title "E-Bike - electrical study - INCOMPLETE") (rev "DRAFT"))',
          ' (lib_symbols']
+    library_symbols = []
     for ref, value, _, _, pins in parts:
         half = max(5.08, 2.54 * (len(pins) - 1) / 2 + 2.54)
-        s += [f'  (symbol "draft:{ref}" (pin_names (offset 0.5)) (in_bom yes) (on_board yes)',
+        symbol = [f'  (symbol "draft:{ref}" (pin_names (offset 0.5)) (in_bom yes) (on_board yes)',
               f'   (property "Reference" "{ref}" (at 0 {half + 2} 0) (effects (font (size 1 1))))',
               f'   (property "Value" {quote(value)} (at 0 {-half - 2} 0) (effects (font (size 1 1))))',
               f'   (symbol "{ref}_0_1" (rectangle (start -7.62 {-half}) (end 7.62 {half}) (stroke (width 0.25) (type default)) (fill (type background))))',
               f'   (symbol "{ref}_1_1"']
         for n, name, _, y in geometry(pins):
-            s.append(f'    (pin passive line (at -12.7 {y:g} 0) (length 5.08) (name {quote(name)} (effects (font (size 0.9 0.9)))) (number {quote(n)} (effects (font (size 0.9 0.9)))))')
-        s += ['   )', '  )']
+            symbol.append(f'    (pin passive line (at -12.7 {y:g} 0) (length 5.08) (name {quote(name)} (effects (font (size 0.9 0.9)))) (number {quote(n)} (effects (font (size 0.9 0.9)))))')
+        symbol += ['   )', '  )']
+        s.extend(symbol)
+        library_symbols.extend([symbol[0].replace(f'"draft:{ref}"', f'"{ref}"', 1), *symbol[1:]])
     s.append(' )')
     for ref, value, x, y, pins in parts:
         x, y = round(x / 1.27) * 1.27, round(y / 1.27) * 1.27
@@ -165,6 +176,12 @@ def main():
     s += [' (text "ETUDE PRELIMINAIRE - NON FABRICABLE - SYMBOLES ET EMPREINTES A VERIFIER" (at 165 405 0) (effects (font (size 2 2))))', ')']
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text('\n'.join(s) + '\n', encoding='utf-8')
+    LIB_OUT.write_text('(kicad_symbol_lib (version 20231120) (generator "eeschema")\n' +
+                       '\n'.join(library_symbols) + '\n)\n', encoding='utf-8')
+    TABLE_OUT.write_text('(sym_lib_table\n (version 7)\n'
+                         ' (lib (name "draft")(type "KiCad")'
+                         '(uri "${KIPRJMOD}/draft.kicad_sym")(options "")'
+                         '(descr "Provisional passive study symbols only"))\n)\n', encoding='utf-8')
     print(OUT)
 
 

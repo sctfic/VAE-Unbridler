@@ -51,14 +51,34 @@ Keep the LX copper short and away from the crystal and antenna.
    each resistor to `GND`.
 3. U3 is AP2112K-3.3TRG1. IN and EN connect to `USB_VBUS`; OUT is
    `3V3_USB`; use C9 and C10, 1 uF X7R, at input and output.
-4. U4 is TPS2116DRLR. `3V3_USB` connects to VIN1 and MODE. `3V3_AUX`
-   connects to VIN2. R6 180 kohm goes from VIN1 to PR1 and R7 100 kohm from
-   PR1 to `GND`, selecting USB above approximately 2.8 V nominal. Both VOUT
-   pins form `3V3`; ST is not connected. Bypass VIN1, VIN2 and VOUT with
-   C11/C12/C13, 1 uF X7R.
+4. U4 is TPS2116DRLR. `3V3_USB` connects to VIN1 and `3V3_AUX` to VIN2.
+   Connect both MODE and PR1 to `GND`: according to TI's truth table this
+   selects the higher input voltage. There is no fixed USB priority. Both
+   VOUT pins form `3V3`; ST is not connected. Bypass VIN1, VIN2 and VOUT
+   with C11/C12/C13, 1 uF X7R.
 
-This arrangement permits programming from USB with the 12 V supply absent
-and prevents either 3.3 V source from feeding the other.
+This arrangement is intended to permit programming from USB with the 12 V
+supply absent and to block reverse current between the 3.3 V sources. It does
+not guarantee uninterrupted operation during USB insertion/removal: the
+TPS2116 can interrupt the output during switching, and the output can dip or
+the ESP32 can reset. Selecting the higher input avoids the former fixed 2.8 V
+nominal priority threshold, but does not guarantee a minimum rail voltage. A
+poorly regulated input, unequal input voltages, current transients or repeated
+switching near equal input voltages must be tested. Check both transitions
+under load and at temperature, including the ESP32 3.0 V minimum supply. Both
+backfeed and uninterrupted operation remain unverified on hardware.
+
+Source: [TI TPS2116 datasheet, sections 6.5, 7.3 and 7.6](https://www.ti.com/lit/ds/symlink/tps2116.pdf).
+
+Provision C30, a 22 uF 10 V X5R 0805 candidate, between `3V3` and `GND`
+close to the load and mux output. Reserve a parallel C31 footprint for an
+optional second 22 uF, initially DNP. C13 (1 uF) and C29 (10 uF) remain;
+these are nominal values, not measured effective capacitance. Verify DC bias,
+temperature, tolerance, starting inrush, and layout; do not claim the added
+capacitor guarantees operation through a transition. Unlike the old fixed
+priority divider, this mode has no guaranteed absolute 3.0 V switchover
+threshold; source voltage tolerances and transient behavior still require
+analysis and measurement before schematic release.
 
 ## ESP32-S3FH4R2 minimum circuit
 

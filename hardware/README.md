@@ -26,7 +26,9 @@ Compact ESP32-S3 controller for the E-BikeCockpit firmware.
 1. `12V+` passes through a resettable fuse, reverse-polarity protection and a TVS clamp.
 2. A fixed-output AP63203 buck regulator creates `3V3_AUX`.
 3. USB VBUS feeds a 600 mA 3.3 V LDO and creates `3V3_USB`.
-4. A TPS2116 power multiplexer selects USB power first when present and blocks reverse current between supplies.
+4. A TPS2116 power multiplexer is configured to select the higher 3.3 V
+   input and block reverse current. USB is not guaranteed priority. Switchover
+   continuity and reverse current remain to be verified on the prototype.
 5. The ESP32-S3FH4R2 is powered from the selected 3.3 V rail.
 6. USB D- and D+ connect to GPIO19 and GPIO20 through 22 ohm series resistors and low-capacitance ESD protection.
 7. GPIO5 reads the protected wheel input. The red LED and its resistor are connected from 3.3 V to the input, so the LED lights when the dry contact closes.
@@ -54,7 +56,10 @@ parts and quotation procedure are in `SOURCING.md`.
 `kicad/power_study.kicad_sch` is an incomplete study of the power section,
 ESP32 pinout, reset, clock and wheel/isolated output interfaces, not a manufacturing schematic. Its
 generic symbols have no verified footprints and all pins are passive, so an
-ERC pass cannot validate the design. The USB data connector, decoupling,
+ERC pass cannot validate the design. `power_study.kicad_pro`, `sym-lib-table`
+and `draft.kicad_sym` make the provisional symbols available locally; they do
+not make them electrically verified. Six debug test points are in the study
+but have not been placed on the PCB. The USB data connector, decoupling,
 wheel ESD protection and RF matching are captured provisionally; the RF
 supply filter value, ESD protection and crystal pinout remain to be verified.
 Do not use its netlist or preview to order a PCB.
