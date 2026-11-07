@@ -18,9 +18,9 @@ constexpr char kTag[] = "pulse";
 constexpr uint64_t kEarliestTaskAlarmUs = 20;
 
 inline void IRAM_ATTR set_contact_closed(bool closed) {
-    // GPIO 6 controls the optocoupler/PhotoMOS LED. The external isolated output
-    // is the only component connected to the controller's sensor terminals.
-    gpio_ll_set_level(&GPIO, kMotorContactPin, closed ? 1 : 0);
+    // Open-drain contact: sink to common signal ground when closed;
+    // release to the controller's external 3.3 V pull-up when open.
+    gpio_ll_set_level(&GPIO, kMotorContactPin, closed ? 0 : 1);
 }
 
 gptimer_alarm_config_t IRAM_ATTR make_alarm(uint64_t at_us) {
@@ -53,9 +53,11 @@ void PulseGenerator::timer_init_task(void* context) {
 }
 
 void PulseGenerator::initialize_on_current_core() {
+    // Preload the released state before enabling output, avoiding a false pulse.
+    ESP_ERROR_CHECK(gpio_set_level(static_cast<gpio_num_t>(kMotorContactPin), 1));
     gpio_config_t output_config{};
     output_config.pin_bit_mask = 1ULL << kMotorContactPin;
-    output_config.mode = GPIO_MODE_OUTPUT;
+    output_config.mode = GPIO_MODE_OUTPUT_OD;
     output_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
     output_config.pull_up_en = GPIO_PULLUP_DISABLE;
     output_config.intr_type = GPIO_INTR_DISABLE;

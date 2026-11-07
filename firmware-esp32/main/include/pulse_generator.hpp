@@ -11,7 +11,7 @@ namespace ebike {
 
 class TelemetryStore;
 
-// Drives GPIO 6 only as a logic signal for an isolated dry-contact interface.
+// GPIO 6 is an active-low open-drain contact for a compatible 3.3 V input.
 // The generator owns all motor-contact timing; BLE never calls it directly.
 class PulseGenerator {
   public:

@@ -48,9 +48,9 @@ L’ESP32 démarre toujours en Standard ; une déconnexion Bluetooth conserve le
 Les deux logiciels doivent être mis à jour. Vérifier les transitions sur banc, à l’arrêt,
 avant utilisation ; le double toucher peut aussi être reconnu en roulant.
 
-GPIO 6 est une sortie logique 3,3 V. Elle doit piloter l'entrée d'un relais PhotoMOS, d'un relais statique ou d'une interface isolée équivalente. La sortie isolée remplace le contact sec du capteur d'origine.
+GPIO 6 est une sortie à drain ouvert : impulsion à 0 (signal relié à la masse), repos à 1 (haute impédance). Ce firmware concerne la carte ESP32-S3 Zero actuelle avec Bluetooth Standard/Turbo, pas une nouvelle carte.
 
-**Ne jamais relier directement GPIO 6 aux fils du contrôleur et ne jamais court-circuiter VCC avec GND.** Le schéma conseillé est dans [`firmware-esp32/HARDWARE.md`](firmware-esp32/HARDWARE.md).
+La liaison directe suppose une entrée moteur à rappel 3,3 V compatible, une masse de signal commune et un courant limité. Une mesure à 3,3 V à vide ne valide pas à elle seule les transitoires ni le comportement ESP32 éteint. **Ne jamais court-circuiter VCC avec GND.** Voir les conditions et les tests dans [`firmware-esp32/HARDWARE.md`](firmware-esp32/HARDWARE.md).
 
 ## Installer l'application Android
 
