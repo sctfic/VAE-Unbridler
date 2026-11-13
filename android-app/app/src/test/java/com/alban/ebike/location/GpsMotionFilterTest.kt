@@ -39,6 +39,14 @@ class GpsMotionFilterTest {
         }
     }
 
+    @Test fun preciseNativeSpeedStartsBeforeFullAccuracyBaseline() {
+        val filter = GpsMotionFilter()
+        assertFalse(filter.accept(fix(0, speed = 4f, accuracy = 7f), 0).moving)
+        val result = filter.accept(fix(1000, 4.0, speed = 4f, accuracy = 7f), 1000)
+        assertTrue(result.moving)
+        assertEquals(14.4f, result.speedKmh, .01f)
+    }
+
     @Test fun cyclingThenStopping() {
         val filter = GpsMotionFilter()
         var result = filter.accept(fix(0, speed = 4f), 0)

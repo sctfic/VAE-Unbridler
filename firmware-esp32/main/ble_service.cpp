@@ -30,6 +30,8 @@ ble_uuid128_t kTelemetryUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x
                                                  0x9f, 0x4d, 0x8a, 0x9b, 0x01, 0x00, 0xf5, 0xa6);
 ble_uuid128_t kConfigUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
                                               0x9f, 0x4d, 0x8a, 0x9b, 0x02, 0x00, 0xf5, 0xa6);
+ble_uuid128_t kSensorDiagnosticsUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
+                                                        0x9f, 0x4d, 0x8a, 0x9b, 0x03, 0x00, 0xf5, 0xa6);
 }  // namespace
 
 BleService* BleService::instance_ = nullptr;
@@ -86,7 +88,7 @@ void BleService::on_sync() {
 }
 
 void BleService::register_gatt() {
-    static ble_gatt_chr_def characteristics[3]{};
+    static ble_gatt_chr_def characteristics[4]{};
     characteristics[0].uuid = &kTelemetryUuid.u;
     characteristics[0].access_cb = &BleService::gatt_access;
     characteristics[0].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
@@ -96,6 +98,11 @@ void BleService::register_gatt() {
     characteristics[1].access_cb = &BleService::gatt_access;
     characteristics[1].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE;
     characteristics[1].val_handle = &config_handle_;
+
+    characteristics[2].uuid = &kSensorDiagnosticsUuid.u;
+    characteristics[2].access_cb = &BleService::gatt_access;
+    characteristics[2].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
+    characteristics[2].val_handle = &sensor_diagnostics_handle_;
 
     static ble_gatt_svc_def services[2]{};
     services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
@@ -182,7 +189,16 @@ int BleService::gatt_access(uint16_t, uint16_t attribute_handle, ble_gatt_access
             return instance_->write_config(context);
         }
     }
+    if (attribute_handle == instance_->sensor_diagnostics_handle_) {
+        return context->op == BLE_GATT_ACCESS_OP_READ_CHR ? instance_->read_sensor_diagnostics(context)
+                                                         : BLE_ATT_ERR_UNLIKELY;
+    }
     return BLE_ATT_ERR_UNLIKELY;
+}
+
+int BleService::read_sensor_diagnostics(ble_gatt_access_ctxt* context) {
+    const auto packet = make_sensor_diagnostics(telemetry_.snapshot(), sequence_++);
+    return os_mbuf_append(context->om, &packet, sizeof(packet)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 int BleService::read_telemetry(ble_gatt_access_ctxt* context) {
@@ -260,6 +276,13 @@ void BleService::send_telemetry() {
     os_mbuf* buffer = ble_hs_mbuf_from_flat(&packet, sizeof(packet));
     if (buffer != nullptr) {
         ble_gatts_notify_custom(connection, telemetry_handle_, buffer);
+    }
+    const auto sensor_packet = make_sensor_diagnostics(state, packet.sequence);
+    os_mbuf* sensor_buffer = ble_hs_mbuf_from_flat(&sensor_packet, sizeof(sensor_packet));
+    if (sensor_buffer != nullptr && sensor_diagnostics_handle_ != 0) {
+        ble_gatts_notify_custom(connection, sensor_diagnostics_handle_, sensor_buffer);
+    } else if (sensor_buffer != nullptr) {
+        os_mbuf_free_chain(sensor_buffer);
     }
 }
 

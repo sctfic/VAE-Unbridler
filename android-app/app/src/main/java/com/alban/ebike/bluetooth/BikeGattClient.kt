@@ -24,12 +24,13 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.alban.ebike.model.BikeTelemetry
 import com.alban.ebike.model.BleProtocol
+import com.alban.ebike.location.GpsDebugLog
 import java.util.UUID
 
 class BikeGattClient(
     context: Context,
-    private val onReady: () -> Unit,
-    private val onTelemetry: (BikeTelemetry) -> Unit,
+    private val onReady: (String) -> Unit,
+    private val onTelemetry: (String, BikeTelemetry) -> Unit,
     private val onDisconnected: () -> Unit,
     private val onStatus: (String) -> Unit,
 ) {
@@ -41,6 +42,7 @@ class BikeGattClient(
     private var gatt: BluetoothGatt? = null
     private var telemetryCharacteristic: BluetoothGattCharacteristic? = null
     private var configCharacteristic: BluetoothGattCharacteristic? = null
+    private var sensorDiagnosticsCharacteristic: BluetoothGattCharacteristic? = null
     private var scanning = false
     private var stopped = false
     private var isReady = false
@@ -73,10 +75,11 @@ class BikeGattClient(
     }
 
     @SuppressLint("MissingPermission")
-    fun setWheelCircumference(circumferenceMm: Int, speedMode: Boolean? = null) {
+    fun setWheelCircumference(circumferenceMm: Int, speedMode: Boolean? = null, expectedAddress: String? = null) {
         handler.post {
             val characteristic = configCharacteristic ?: return@post
             val currentGatt = gatt ?: return@post
+            if (expectedAddress == null || !currentGatt.device.address.equals(expectedAddress, ignoreCase = true)) return@post
             if (!isReady || configWritePending) {
                 status("Réglage occupé · réessayez")
                 return@post
@@ -143,6 +146,7 @@ class BikeGattClient(
                 isReady = false
                 telemetryCharacteristic = null
                 configCharacteristic = null
+                sensorDiagnosticsCharacteristic = null
                 gatt.close()
                 if (this@BikeGattClient.gatt === gatt) this@BikeGattClient.gatt = null
                 onDisconnected()
@@ -171,6 +175,7 @@ class BikeGattClient(
             val service = gatt.getService(BleProtocol.serviceUuid) ?: run { gatt.disconnect(); return }
             telemetryCharacteristic = service.getCharacteristic(BleProtocol.telemetryUuid)
             configCharacteristic = service.getCharacteristic(BleProtocol.configUuid)
+            sensorDiagnosticsCharacteristic = service.getCharacteristic(BleProtocol.sensorDiagnosticsUuid)
             val telemetry = telemetryCharacteristic ?: run { gatt.disconnect(); return }
             gatt.setCharacteristicNotification(telemetry, true)
             val descriptor = telemetry.getDescriptor(CLIENT_CONFIGURATION_UUID) ?: run { gatt.disconnect(); return }
@@ -178,12 +183,28 @@ class BikeGattClient(
             gatt.writeDescriptor(descriptor)
         }
 
+        @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
-            if (descriptor.uuid == CLIENT_CONFIGURATION_UUID && status == BluetoothGatt.GATT_SUCCESS) {
-                isReady = true
-                status("ESP32 connecté")
-                onReady()
+            if (descriptor.uuid != CLIENT_CONFIGURATION_UUID) return
+            when (descriptor.characteristic.uuid) {
+                BleProtocol.telemetryUuid -> {
+                    if (status != BluetoothGatt.GATT_SUCCESS) return
+                    // Serialize CCCD writes before onReady can enqueue a config write.
+                    val sensor = sensorDiagnosticsCharacteristic
+                    val sensorDescriptor = sensor?.getDescriptor(CLIENT_CONFIGURATION_UUID)
+                    if (sensor != null && sensorDescriptor != null &&
+                        gatt.setCharacteristicNotification(sensor, true)) {
+                        sensorDescriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        if (gatt.writeDescriptor(sensorDescriptor)) return
+                    }
+                    GpsDebugLog.record("SENSOR diagnostics=unavailable")
+                    finishReady(gatt)
+                }
+                BleProtocol.sensorDiagnosticsUuid -> {
+                    GpsDebugLog.record("SENSOR subscriptionStatus=$status")
+                    finishReady(gatt) // Optional diagnostics must not block legacy telemetry.
+                }
             }
         }
 
@@ -198,7 +219,7 @@ class BikeGattClient(
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
-            consumeTelemetry(characteristic.uuid, characteristic.value ?: return)
+            consumeTelemetry(gatt.device.address, characteristic.uuid, characteristic.value ?: return)
         }
 
         override fun onCharacteristicChanged(
@@ -207,12 +228,27 @@ class BikeGattClient(
             value: ByteArray,
         ) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
-            consumeTelemetry(characteristic.uuid, value)
+            consumeTelemetry(gatt.device.address, characteristic.uuid, value)
         }
     }
 
-    private fun consumeTelemetry(uuid: UUID, value: ByteArray) {
-        if (uuid == BleProtocol.telemetryUuid) BleProtocol.decodeTelemetry(value)?.let(onTelemetry)
+    private fun consumeTelemetry(address: String, uuid: UUID, value: ByteArray) {
+        if (uuid == BleProtocol.telemetryUuid) BleProtocol.decodeTelemetry(value)?.let { onTelemetry(address, it) }
+        if (uuid == BleProtocol.sensorDiagnosticsUuid) {
+            BleProtocol.decodeSensorDiagnostics(value)?.let { sensor ->
+                GpsDebugLog.record("SENSOR seq=${sensor.sequence} intervalValid=${sensor.intervalValid} " +
+                    "rawIntervalUs=${sensor.rawIntervalUs} edges=${sensor.edges} " +
+                    "rejectedEdges=${sensor.rejectedEdges} queueDroppedEdges=${sensor.droppedEdges} " +
+                    "limit99=${sensor.limit99} acceleration15=${sensor.acceleration15} holdPrevious=${sensor.holdPrevious}")
+            }
+        }
+    }
+
+    private fun finishReady(gatt: BluetoothGatt) {
+        if (isReady) return
+        isReady = true
+        status("ESP32 connecté")
+        onReady(gatt.device.address)
     }
 
     private fun scheduleReconnect() {

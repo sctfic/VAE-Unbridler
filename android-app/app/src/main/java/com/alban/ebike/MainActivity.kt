@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.alban.ebike.companion.PresenceWatchdog.rearm(this)
         settings = BikeSettingsStore(this)
         enterDashboardMode()
         associationLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -66,27 +67,38 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val rideState by RideStateStore.state.collectAsState()
-            val circumference by settings.circumferenceMm.collectAsState(BleProtocol.defaultCircumferenceMm)
-            DashboardScreen(
-                state = rideState,
-                circumferenceMm = circumference,
-                onAssociate = ::associateBike,
-                onResetRide = { RideStateStore.resetRide() },
-                onToggleMode = {
-                    when {
-                        !rideState.bluetoothReady -> Toast.makeText(this, "Connectez l’ESP32 pour changer de mode", Toast.LENGTH_SHORT).show()
-                        !rideState.modeSupported -> Toast.makeText(this, "Mise à jour du firmware ESP32 nécessaire", Toast.LENGTH_LONG).show()
-                        else -> RideService.toggleMode(this)
-                    }
-                },
-                onSaveCircumference = { mm ->
-                    scope.launch {
-                        settings.setCircumferenceMm(mm)
-                        RideService.setWheelCircumference(this@MainActivity, mm)
-                    }
-                },
-            )
+            val profileRevision by com.alban.ebike.data.BikeProfiles.revision.collectAsState()
+            val profileId by com.alban.ebike.data.BikeProfiles.activeId.collectAsState()
+            val circumference = androidx.compose.runtime.remember(profileRevision, profileId) { settings.currentCircumference(profileId) }
+            androidx.compose.runtime.CompositionLocalProvider(com.alban.ebike.ui.LocalSunlight provides com.alban.ebike.ui.rememberAmbientLight()) {
+            androidx.compose.runtime.key(profileId) {
+                DashboardScreen(
+                    state = rideState,
+                    circumferenceMm = circumference,
+                    onAssociate = ::associateBike,
+                    onResetRide = { RideStateStore.resetRide() },
+                    onToggleMode = {
+                        when {
+                            !rideState.bluetoothReady -> Toast.makeText(this, "Connectez l’ESP32 pour changer de mode", Toast.LENGTH_SHORT).show()
+                            !rideState.modeSupported -> Toast.makeText(this, "Mise à jour du firmware ESP32 nécessaire", Toast.LENGTH_LONG).show()
+                            else -> RideService.toggleMode(this, profileId)
+                        }
+                    },
+                    onSaveCircumference = { mm ->
+                        scope.launch {
+                            settings.setCircumferenceMm(mm, profileId)
+                            RideService.setWheelCircumference(this@MainActivity, mm, profileId)
+                        }
+                    },
+                )
+            }
+            }
         }
+    }
+
+    override fun onDestroy() {
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -109,6 +121,13 @@ class MainActivity : ComponentActivity() {
     private fun enterDashboardMode() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        window.isStatusBarContrastEnforced = false
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         WindowInsetsControllerCompat(window, window.decorView).apply {

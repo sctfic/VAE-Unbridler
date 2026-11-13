@@ -19,7 +19,7 @@ class PulseGenerator {
 
     void begin();
     void emit_passthrough(uint32_t interval_us, uint16_t speed_centi_kmh);
-    void set_simulated_interval(uint32_t interval_us, uint16_t speed_centi_kmh);
+    void set_output_interval(uint32_t interval_us, uint16_t speed_centi_kmh, bool simulated);
     void stop();
 
   private:

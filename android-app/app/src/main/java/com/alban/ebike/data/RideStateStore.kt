@@ -22,26 +22,39 @@ object RideStateStore {
     private val track = VisibleTrack()
     private var trackPoints = emptyList<TrackPoint>()
     private var lastFixTimeMs = -1L
-    private var filteredAltitude: Float? = null
+    private val altitudeTrend = AltitudeTrendFilter()
+    private var altitudeSource: String? = null
+    private var elevationGrid: com.alban.ebike.terrain.TerrainGrid? = null
+    @Synchronized fun setElevationGrid(grid: com.alban.ebike.terrain.TerrainGrid?) { elevationGrid = grid }
     private var distanceM = 0.0
-    private val regression = com.alban.ebike.location.PositionSpeedRegression()
+    private val measurements = com.alban.ebike.location.GpsMeasurements()
+    private val altitudeQuality = com.alban.ebike.location.AltitudeQuality()
     private val movingTimer = MovingTimer()
+    private val calibration = WheelCalibration()
+    private var calibrationBike: String? = null
+
+    @Synchronized fun activateBike(id: String) {
+        if (calibrationBike != id) {
+            calibration.reset()
+            _state.update { it.copy(calibration = null) }
+            calibrationBike = id
+        }
+    }
     private val elevationGain = ElevationGain()
+    private val elevationLoss = ElevationGain(-1f)
     @Volatile var movingThresholdKmh = 4f
     @Volatile var gradePointCount = DistanceAltitudeProfile.DEFAULT_GRADE_POINTS
-    private val motionFilter = GpsMotionFilter()
-    private val trackFilter = GpsTrackFilter()
     private var lastReliableSpeedMs = 0L
 
     @Synchronized
     fun resetRide() {
         track.clear(); trackPoints = emptyList(); profile.clear()
-        distanceM = 0.0; filteredAltitude = null
-        movingTimer.reset(); elevationGain.reset()
+        distanceM = 0.0; altitudeTrend.reset(); altitudeSource = null
+        movingTimer.reset(); elevationGain.reset(); elevationLoss.reset(); calibration.reset()
         resetGpsSpeed()
         RideTrackJournal.startNewRide()
         _state.update { it.copy(distanceM = 0.0, track = emptyList(), profile = emptyList(),
-            position = null, altitudeM = null, movingTimeMs = 0, restTimeMs = 0, resting = false, elevationGainM = 0f, inclinePercent = 0f, inclineValid = false) }
+            position = null, altitudeM = null, altitudeSource = null, altitudeUncertaintyM = null, movingTimeMs = 0, restTimeMs = 0, resting = true, pauses = emptyList(), calibration = null, elevationGainM = 0f, elevationLossM = 0f, inclinePercent = 0f, inclineValid = false) }
         GpsDebugLog.record("RESET trajet confirmé")
     }
 
@@ -52,20 +65,44 @@ object RideStateStore {
                 gpsStatus = "Signal GPS en attente") }
         }
         val elapsed = movingTimer.update(nowMs, _state.value.displayedSpeedKmh, movingThresholdKmh)
-        _state.update { it.copy(movingTimeMs = elapsed, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting) }
+        _state.update { current ->
+            val anchor = current.position
+            val pauses = current.pauses.toMutableList()
+            if (anchor != null) {
+                val boundary = anchor.copy(timeMs = System.currentTimeMillis(), movingTimeMs = elapsed,
+                    restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting)
+                if (movingTimer.resting && (pauses.isEmpty() || pauses.last().end != null)) {
+                    pauses.add(com.alban.ebike.model.RidePause(boundary))
+                } else if (!movingTimer.resting && pauses.lastOrNull()?.end == null && pauses.isNotEmpty()) {
+                    pauses[pauses.lastIndex] = pauses.last().copy(end = boundary)
+                }
+            }
+            current.copy(movingTimeMs = elapsed, restTimeMs = movingTimer.restMilliseconds,
+                resting = movingTimer.resting, pauses = pauses)
+        }
+    }
+
+    @Synchronized
+    fun suspendTimers() { movingTimer.suspend(); calibration.disconnect() }
+
+    @Synchronized
+    fun evaluateWheelCalibration() {
+        val proposal = calibration.evaluate()
+        _state.update { it.copy(calibration = proposal) }
     }
 
     @Synchronized
     fun resetGpsSpeed() {
-        motionFilter.reset()
-        regression.reset()
-        trackFilter.reset()
+        measurements.reset()
+        altitudeQuality.reset()
+        altitudeTrend.reset()
         lastFixTimeMs = -1L
         lastReliableSpeedMs = 0
         _state.update { it.copy(gpsSpeedKmh = 0f, gpsSpeedValid = false) }
     }
 
     fun setBluetoothReady(ready: Boolean) {
+        if (!ready) calibration.disconnect()
         _state.update { it.copy(bluetoothReady = ready,
             modeSupported = ready && it.modeSupported,
             speedMode = ready && it.speedMode,
@@ -74,14 +111,30 @@ object RideStateStore {
             simulatedOutput = ready && it.simulatedOutput) }
     }
 
-    fun setBluetoothStatus(message: String) { _state.update { it.copy(bluetoothStatus = message) } }
+    fun setBluetoothStatus(message: String) {
+        GpsDebugLog.record("BLE status=$message")
+        _state.update { it.copy(bluetoothStatus = message) }
+    }
     fun setGpsStatus(message: String) {
         GpsDebugLog.record(message)
         _state.update { it.copy(gpsStatus = message) }
     }
 
     fun ingestTelemetry(telemetry: BikeTelemetry) {
+        val gps = _state.value
+        GpsDebugLog.record("BLE seq=${telemetry.sequence} uptimeMs=${telemetry.uptimeMs} " +
+            "wheelKmh=${telemetry.wheelSpeedKmh} motorKmh=${telemetry.motorSpeedKmh} " +
+            "wheelUs=${telemetry.wheelIntervalUs} motorUs=${telemetry.motorIntervalUs} " +
+            "revolutions=${telemetry.wheelRevolutions} pulses=${telemetry.emittedPulses} " +
+            "circumferenceMm=${telemetry.circumferenceMm} moving=${telemetry.wheelMoving} " +
+            "turbo=${telemetry.speedMode} simulated=${telemetry.simulatedOutput} " +
+            "gpsKmh=${gps.gpsSpeedKmh} gpsValid=${gps.gpsSpeedValid}")
+        RideTrackJournal.recordTelemetry(telemetry)
+        calibration.telemetry(SystemClock.elapsedRealtime(), telemetry.uptimeMs, telemetry.wheelRevolutions)
         _state.update { it.copy(
+            wheelTelemetryTimeMs = SystemClock.elapsedRealtime(),
+            wheelTelemetryCoherent = com.alban.ebike.model.TelemetryDisplayValidation.wheel(telemetry),
+            motorTelemetryCoherent = com.alban.ebike.model.TelemetryDisplayValidation.motor(telemetry),
             speedMode = telemetry.speedMode,
             modeSupported = telemetry.modeSupported,
             wheelSpeedKmh = telemetry.wheelSpeedKmh,
@@ -103,15 +156,13 @@ object RideStateStore {
             if (location.hasAccuracy()) location.accuracy else Float.POSITIVE_INFINITY,
             if (location.hasSpeed()) location.speed else null,
             if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond else null)
-        var motion = motionFilter.accept(fix, nowMs)
-        val decision = trackFilter.accept(fix, nowMs, motion)
-        if (!decision.accepted) {
-            motionFilter.reset()
-            motion = GpsMotionFilter.Result(0f, false, false, decision.reason)
-        } else lastFixTimeMs = fixTimeMs
-        val estimated = if (decision.accepted) regression.accept(fix, nowMs) else { regression.reset(); null }
-        val approximate = (!motion.reliable || motion.reason.startsWith("maintien")) && estimated != null
-        if (approximate) motion = GpsMotionFilter.Result(estimated!!, true, estimated > 1.8f, "régression coordonnées · approximation")
+        val reading = measurements.accept(fix, nowMs)
+        val motion = reading.motion
+        val decision = reading.track
+        val approximate = reading.approximate
+        lastFixTimeMs = fixTimeMs
+        calibration.gps(fixTimeMs, nowMs, location.latitude, location.longitude, fix.accuracyM,
+            decision.accepted && _state.value.bluetoothReady)
         val accuracy = if (location.hasAccuracy()) "%.0f".format(location.accuracy) else "?"
         val rawSpeed = if (location.hasSpeed()) "%.1f".format(location.speed * 3.6f) else "?"
         val speedError = if (location.hasSpeedAccuracy()) "%.2f".format(location.speedAccuracyMetersPerSecond) else "?"
@@ -123,44 +174,79 @@ object RideStateStore {
             "speedValid=${motion.reliable} moving=${motion.moving} output=${motion.speedKmh} " +
             "trace=${decision.reason} append=${decision.append} segmentStart=${decision.segmentStart} stepM=${decision.distanceM}")
         if (motion.reliable) lastReliableSpeedMs = fixTimeMs
-        _state.update { it.copy(gpsSpeedKmh = motion.speedKmh, gpsSpeedValid = motion.reliable, gpsSpeedApproximate = approximate) }
+        _state.update { it.copy(gpsSpeedTimeMs = fixTimeMs, gpsSpeedKmh = motion.speedKmh, gpsSpeedValid = motion.reliable, gpsSpeedApproximate = approximate) }
         expireGpsSpeed(nowMs)
-        if (!decision.accepted) return
+        if (!decision.accepted) {
+            val snapshot = _state.value
+            RideTrackJournal.record(TrackPoint(location.latitude, location.longitude,
+                if (location.hasAltitude()) location.altitude.toFloat() else 0f, location.time,
+                distanceM, true, snapshot.displayedSpeedKmh, snapshot.inclinePercent.takeIf { snapshot.inclineValid },
+                altitudeValid = location.hasAltitude(), movingTimeMs = snapshot.movingTimeMs,
+                restTimeMs = snapshot.restTimeMs, resting = snapshot.resting, elevationGainM = snapshot.elevationGainM, elevationLossM = snapshot.elevationLossM,
+                speedSource = snapshot.displayedSpeedSource, accuracyM = fix.accuracyM,
+                rawAltitudeM = location.altitude.takeIf { location.hasAltitude() },
+                rawSpeedKmh = location.speed.takeIf { location.hasSpeed() }?.times(3.6f), positionValid = false,
+                wheelSpeedKmh = snapshot.wheelSpeedKmh.takeIf { snapshot.bluetoothReady },
+                motorSpeedKmh = snapshot.motorSpeedKmh.takeIf { snapshot.bluetoothReady }))
+            return
+        }
         val time = location.time.takeIf { it > 0 } ?: System.currentTimeMillis()
         distanceM += decision.distanceM
 
-        val hasAltitude = location.hasAltitude() && location.altitude.isFinite() &&
-            (!location.hasVerticalAccuracy() || location.verticalAccuracyMeters <= 15f)
-        if (hasAltitude && (filteredAltitude == null || decision.distanceM > 0 || decision.segmentStart)) {
-            val rawAltitude = location.altitude.toFloat()
-            val alpha = (1 - kotlin.math.exp(-decision.distanceM / 8.0)).toFloat().coerceIn(0f, 1f)
-            filteredAltitude = if (decision.segmentStart) rawAltitude else
-                filteredAltitude?.let { it + alpha * (rawAltitude - it) } ?: rawAltitude
+        val gpsHeight = com.alban.ebike.location.GpsAltitude.meters(location)
+        val gpsError = com.alban.ebike.location.GpsAltitude.accuracy(location)
+        val gpsAltitudeValid = altitudeQuality.accept(fixTimeMs, distanceM,
+            gpsHeight, gpsError, decision.segmentStart)
+        val terrainAltitude = com.alban.ebike.terrain.RideElevation.sample(elevationGrid,
+            location.latitude, location.longitude, fix.accuracyM)
+        val chosenAltitude = terrainAltitude ?: gpsHeight?.toFloat()?.takeIf { gpsAltitudeValid }
+        val nextSource = if (terrainAltitude != null) "IGN" else if (gpsAltitudeValid) com.alban.ebike.location.GpsAltitude.source(location) else null
+        val altitudeBreak = decision.segmentStart || nextSource != altitudeSource
+        altitudeSource = nextSource
+        val hasAltitude = chosenAltitude != null
+        val uncertainty = if (!hasAltitude) null else if (nextSource == "IGN")
+            com.alban.ebike.terrain.RideElevation.positionUncertainty(elevationGrid,
+                location.latitude, location.longitude, fix.accuracyM)
+            else gpsError
+        val altitude = altitudeTrend.update(chosenAltitude, decision.distanceM, uncertainty, nextSource, altitudeBreak)
+        val profilePoints = if (decision.append && !movingTimer.resting || !hasAltitude || altitudeBreak) profile.update(distanceM,
+            altitude.takeIf { hasAltitude }, altitudeBreak) else _state.value.profile
+        if (decision.append && !movingTimer.resting || !hasAltitude || altitudeBreak) {
+            elevationGain.update(altitude.takeIf { hasAltitude }, altitudeBreak)
+            elevationLoss.update(altitude.takeIf { hasAltitude }, altitudeBreak)
         }
-        if (!hasAltitude) filteredAltitude = null
-        val altitude = filteredAltitude
-        val profilePoints = if (decision.append || !hasAltitude) profile.update(distanceM,
-            altitude.takeIf { hasAltitude }, decision.segmentStart) else _state.value.profile
-        if (decision.append || !hasAltitude) elevationGain.update(altitude.takeIf { hasAltitude }, decision.segmentStart)
-        val inclination = profile.grade(gradePointCount)
-        GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude append=${decision.append}")
+        val estimate = profile.estimate(gradePointCount)?.takeIf {
+            fix.accuracyM <= 10f && it.spanM >= maxOf(6.0, fix.accuracyM * 2.0)
+        }
+        val inclination = estimate?.percent
+        GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude altitudeValid=$hasAltitude source=$nextSource uncertaintyM=$uncertainty verticalAccuracy=${if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters else null} append=${decision.append}")
         val snapshot = _state.value
         val point = TrackPoint(location.latitude, location.longitude, altitude ?: 0f, time,
-            distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, inclination, hasAltitude,
-            movingTimeMs = movingTimer.milliseconds, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting, elevationGainM = elevationGain.metres,
+            distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, null, hasAltitude,
+            movingTimeMs = movingTimer.milliseconds, restTimeMs = movingTimer.restMilliseconds, resting = movingTimer.resting, elevationGainM = elevationGain.metres, elevationLossM = elevationLoss.metres,
             speedApproximate = snapshot.gpsSpeedValid && snapshot.gpsSpeedApproximate,
-            speedSource = snapshot.displayedSpeedSource)
-        if (decision.append) {
-            trackPoints = track.add(point)
-            RideTrackJournal.record(point)
+            speedSource = snapshot.displayedSpeedSource, accuracyM = fix.accuracyM,
+            altitudeSource = nextSource, altitudeUncertaintyM = uncertainty, altitudeSegmentStart = altitudeBreak,
+            gradeEstimatePercent = inclination,
+            rawAltitudeM = location.altitude.takeIf { location.hasAltitude() },
+            rawSpeedKmh = location.speed.takeIf { location.hasSpeed() }?.times(3.6f),
+            wheelSpeedKmh = snapshot.wheelSpeedKmh.takeIf { snapshot.bluetoothReady },
+            motorSpeedKmh = snapshot.motorSpeedKmh.takeIf { snapshot.bluetoothReady })
+        trackPoints = track.add(point)
+        RideTrackJournal.record(point)
+        if (estimate != null && decision.append && !movingTimer.resting && !altitudeBreak) {
+            track.applyCenteredGrade(estimate, nextSource)?.let { corrected ->
+                RideTrackJournal.recordGrade(corrected, estimate)
+                trackPoints = track.snapshot()
+            }
         }
         _state.update { it.copy(
             gpsStatus = diagnostic,
             gpsSpeedKmh = motion.speedKmh,
             gpsSpeedValid = motion.reliable,
             gpsSpeedApproximate = approximate,
-            elevationGainM = elevationGain.metres,
-            altitudeM = altitude,
+            elevationGainM = elevationGain.metres, elevationLossM = elevationLoss.metres,
+            altitudeM = altitude, altitudeSource = nextSource, altitudeUncertaintyM = uncertainty,
             inclinePercent = inclination ?: 0f,
             inclineValid = inclination != null,
             distanceM = distanceM,

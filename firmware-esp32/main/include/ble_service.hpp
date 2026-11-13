@@ -27,6 +27,7 @@ class BleService {
     void start_advertising();
     void send_telemetry();
     int read_telemetry(ble_gatt_access_ctxt* context);
+    int read_sensor_diagnostics(ble_gatt_access_ctxt* context);
     int read_config(ble_gatt_access_ctxt* context);
     int write_config(ble_gatt_access_ctxt* context);
 
@@ -35,6 +36,7 @@ class BleService {
     TelemetryStore& telemetry_;
     uint16_t telemetry_handle_ = 0;
     uint16_t config_handle_ = 0;
+    uint16_t sensor_diagnostics_handle_ = 0;
     volatile uint16_t connection_handle_ = 0xffff;
     uint16_t sequence_ = 0;
     uint8_t address_type_ = 0;

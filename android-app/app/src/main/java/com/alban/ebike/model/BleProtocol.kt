@@ -8,6 +8,7 @@ object BleProtocol {
     val serviceUuid: UUID = UUID.fromString("a6f50000-9b8a-4d9f-a0da-9e9d873d1101")
     val telemetryUuid: UUID = UUID.fromString("a6f50001-9b8a-4d9f-a0da-9e9d873d1101")
     val configUuid: UUID = UUID.fromString("a6f50002-9b8a-4d9f-a0da-9e9d873d1101")
+    val sensorDiagnosticsUuid: UUID = UUID.fromString("a6f50003-9b8a-4d9f-a0da-9e9d873d1101")
     const val protocolVersion = 1
     const val defaultCircumferenceMm = 2360
     const val defaultThresholdCentiKmh = 2220
@@ -35,6 +36,24 @@ object BleProtocol {
         )
     }
 
+    fun decodeSensorDiagnostics(bytes: ByteArray): SensorDiagnostics? {
+        if (bytes.size != 20) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        if ((buffer.get().toInt() and 0xff) != protocolVersion) return null
+        val flags = buffer.get().toInt() and 0xff
+        return SensorDiagnostics(
+            intervalValid = flags and 1 != 0,
+            sequence = buffer.short.toInt() and 0xffff,
+            rawIntervalUs = buffer.int.toLong() and 0xffff_ffffL,
+            edges = buffer.int.toLong() and 0xffff_ffffL,
+            rejectedEdges = buffer.int.toLong() and 0xffff_ffffL,
+            droppedEdges = buffer.int.toLong() and 0xffff_ffffL,
+            limit99 = flags and 2 != 0,
+            acceleration15 = flags and 4 != 0,
+            holdPrevious = flags and 8 != 0,
+        )
+    }
+
     fun encodeConfig(circumferenceMm: Int, speedMode: Boolean? = null): ByteArray =
         ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).apply {
             put(protocolVersion.toByte())
@@ -44,6 +63,18 @@ object BleProtocol {
             putShort(0)
         }.array()
 }
+
+data class SensorDiagnostics(
+    val intervalValid: Boolean,
+    val sequence: Int,
+    val rawIntervalUs: Long,
+    val edges: Long,
+    val rejectedEdges: Long,
+    val droppedEdges: Long,
+    val limit99: Boolean = false,
+    val acceleration15: Boolean = false,
+    val holdPrevious: Boolean = false,
+)
 
 data class BikeTelemetry(
     val speedMode: Boolean = false,

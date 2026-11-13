@@ -4,6 +4,39 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SceneOrbitTest {
+    @Test fun allowsMuchWiderPinchZoomWithoutExceedingBounds() {
+        val orbit = SceneOrbit()
+        orbit.touch(); orbit.scale(.01)
+        assertEquals(.15, orbit.zoom, 0.0)
+        orbit.scale(Double.NaN)
+        assertEquals(.15, orbit.zoom, 0.0)
+        orbit.scale(1000.0)
+        assertEquals(4.0, orbit.zoom, 0.0)
+    }
+    @Test fun sharedWindowsCycleInTheRequestedOrderAndKeepLiveEndpoint() {
+        assertEquals(SceneWindow.LAST_2_KM, SceneWindow.LAST_500_M.next())
+        assertEquals(SceneWindow.ALL, SceneWindow.LAST_2_KM.next())
+        assertEquals(SceneWindow.LAST_500_M, SceneWindow.ALL.next())
+        assertEquals(500.0, SceneWindow.LAST_500_M.meters(15000.0), 0.0)
+        assertEquals(2000.0, SceneWindow.LAST_2_KM.meters(15000.0), 0.0)
+        assertEquals(15000.0, SceneWindow.ALL.meters(15000.0), 0.0)
+        val first = com.alban.ebike.model.TrackPoint(0.0, 0.0, 10f, 1000)
+        val live = first.copy(timeMs = 2000, distanceM = 50.0)
+        assertEquals(listOf(first, live), TrackWindow.withCurrent(listOf(first), live))
+        assertEquals(listOf(first, live), TrackWindow.withCurrent(listOf(first, live), live))
+    }
+    @Test fun framingIsCenteredDuringTouchAndIdleAndRaisedWhileFollowing() {
+        val orbit = SceneOrbit()
+        assertEquals(0.0, orbit.targetY(0), 0.0)
+        orbit.movement(5.0, 1000)
+        assertEquals(TrackCamera.TARGET_Y, orbit.targetY(1100), 0.0)
+        orbit.touch()
+        assertEquals(0.0, orbit.targetY(1200), 0.0)
+        orbit.release(1200)
+        assertEquals(0.0, orbit.targetY(4199), 0.0)
+        assertEquals(TrackCamera.TARGET_Y, orbit.targetY(4200), 0.0)
+        assertEquals(0.0, orbit.targetY(6000), 0.0)
+    }
     @Test fun pitchAndZoomAreBoundedThenReturnToSlopeAwareAutomaticCamera() {
         val orbit = SceneOrbit()
         orbit.advance(0.0, 0)

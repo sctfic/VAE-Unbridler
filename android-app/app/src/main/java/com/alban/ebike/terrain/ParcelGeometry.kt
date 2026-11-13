@@ -26,16 +26,16 @@ object ParcelGeometry {
         }
         return best
     }
-    fun build(parcels: List<Parcel>, terrain: TerrainGrid?): ParcelMesh {
+    fun build(parcels: List<Parcel>, terrain: TerrainGrid?, detail: TerrainDetail = TerrainDetail.CLOSE): ParcelMesh {
         if (terrain == null || !terrain.real) return ParcelMesh()
         val features = parcels.flatMap { parcel -> parcel.rings.map { MapFeature(false, false, it) } }
         val lines = MapFeatureProjection.build(MapFeatureArea(terrain.originLat, terrain.originLon,
-            terrain.halfSizeM, true, features), terrain, TerrainDetail.CLOSE).roads
+            terrain.halfSizeM, true, features), terrain, detail).roads
         val base = terrain.heights.filter { it.isFinite() }.minOrNull()?.toDouble() ?: return ParcelMesh()
         val labels = parcels.mapNotNull { parcel ->
             val coordinate = interior(parcel.rings) ?: return@mapNotNull null
             val p = GeoFrame.local(coordinate.latitude, coordinate.longitude, terrain.originLat, terrain.originLon)
-            val h = terrain.sampleSmooth(p.east, p.north) ?: return@mapNotNull null
+            val h = TerrainSurface.sample(terrain, detail, p.east, p.north) ?: return@mapNotNull null
             WorldLabel(parcel.label, p.copy(height = (h - base) * RideSceneMesh.VERTICAL_EXAGGERATION + 1.5))
         }
         return ParcelMesh(lines, labels)

@@ -7,12 +7,12 @@ class RideReadoutTest {
     private val live = RideUiState(gpsSpeedKmh = 30f, gpsSpeedValid = true,
         bluetoothReady = true, wheelSpeedKmh = 31f, altitudeM = 200f,
         inclinePercent = 9f, inclineValid = true, distanceM = 5000.0,
-        elevationGainM = 300f, movingTimeMs = 900000)
+        elevationGainM = 300f, elevationLossM = 120f, movingTimeMs = 900000)
 
     @Test fun selectedSnapshotSuppliesAllSixFieldsAndRetainsGlitch() {
         val point = TrackPoint(0.0, 0.0, 120f, 1000, distanceM = 1500.0,
             speedKmh = 18f, gradePercent = -2f, movingTimeMs = 120000,
-            elevationGainM = 45f, speedApproximate = true, speedSource = "GPS")
+            elevationGainM = 45f, elevationLossM = 12f, speedApproximate = true, speedSource = "GPS")
         val shown = RideReadout.from(live, point)
         assertTrue(shown.historical)
         assertEquals(18f, shown.speedKmh!!, 0f)
@@ -20,6 +20,7 @@ class RideReadoutTest {
         assertEquals(-2f, shown.gradePercent!!, 0f)
         assertEquals(1500.0, shown.distanceM, 0.0)
         assertEquals(45f, shown.elevationGainM!!, 0f)
+        assertEquals(12f, shown.elevationLossM!!, 0f)
         assertEquals(120000L, shown.movingTimeMs!!)
         assertTrue(shown.speedApproximate)
         assertEquals(shown, RideReadout.from(live.copy(gpsSpeedKmh = 40f,
@@ -32,6 +33,7 @@ class RideReadoutTest {
         val shown = RideReadout.from(live, point)
         assertNull(shown.speedKmh); assertNull(shown.altitudeM); assertNull(shown.gradePercent)
         assertNull(shown.movingTimeMs); assertNull(shown.elevationGainM)
+        assertNull(shown.elevationLossM)
     }
 
     @Test fun returningToLiveRestoresCurrentValuesAndWheelFallback() {
@@ -42,6 +44,7 @@ class RideReadoutTest {
         assertEquals(200f, shown.altitudeM!!, 0f); assertEquals(9f, shown.gradePercent!!, 0f)
         assertEquals(5000.0, shown.distanceM, 0.0)
         assertEquals(300f, shown.elevationGainM!!, 0f); assertEquals(900000L, shown.movingTimeMs!!)
+        assertEquals(120f, shown.elevationLossM!!, 0f)
     }
     @Test fun durationHidesOnlyZeroHours() {
         assertEquals("00:00", formatRideDuration(0))
@@ -53,6 +56,17 @@ class RideReadoutTest {
         val point = TrackPoint(0.0, 0.0, 100f, 1000, restTimeMs = 45000, resting = true)
         val shown = RideReadout.from(live.copy(restTimeMs = 90000, resting = false), point)
         assertTrue(shown.resting); assertEquals(45000L, shown.restTimeMs!!)
+    }
+
+    @Test fun altitudeUncertaintyFollowsTheSelectedPointAndItsSource() {
+        val current = live.copy(altitudeSource = "GPS", altitudeUncertaintyM = 2.5f)
+        assertEquals(2.5f, RideReadout.from(current).altitudeUncertaintyM!!, 0f)
+        val point = TrackPoint(0.0, 0.0, 180f, 1000,
+            altitudeSource = "IGN", altitudeUncertaintyM = .4f)
+        val shown = RideReadout.from(current, point)
+        assertEquals("IGN", shown.altitudeSource)
+        assertEquals(.4f, shown.altitudeUncertaintyM!!, 0f)
+        assertNull(RideReadout.from(current, point.copy(altitudeUncertaintyM = null)).altitudeUncertaintyM)
     }
 
 }

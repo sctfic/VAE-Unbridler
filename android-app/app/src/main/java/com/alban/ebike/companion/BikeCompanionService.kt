@@ -18,17 +18,19 @@ class BikeCompanionService : CompanionDeviceService() {
     }
 
     private fun appeared() {
+        if (PresenceWatchdog.blocked(this)) return
         android.util.Log.i("EBikeAutoOpen", "Associated ESP32 appeared")
-        DashboardLauncher.openIfUnlocked(this)
         RideService.start(this)
     }
 
     override fun onDeviceDisappeared(associationInfo: AssociationInfo) {
+        PresenceWatchdog.rearm(this)
         BikeArrivalNotification.dismiss(this)
         // GPS remains independent of the companion's presence.
     }
 
     override fun onDeviceDisappeared(address: String) {
+        PresenceWatchdog.rearm(this)
         BikeArrivalNotification.dismiss(this)
     }
 }

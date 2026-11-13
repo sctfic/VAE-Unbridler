@@ -24,7 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import androidx.core.content.ContextCompat
 import android.Manifest
 
@@ -35,9 +35,12 @@ class RideService : Service() {
     private lateinit var locationEngine: RideLocationEngine
     private lateinit var settings: BikeSettingsStore
     private lateinit var wakeLock: PowerManager.WakeLock
+    @Volatile private var connectedBike: String? = null
+    private var wheelInitialized = false
+    private var shuttingDown = false
     private var notificationStarted = false
     private var dashboardOpenedForConnection = false
-    private var locationStarted = false
+    @Volatile private var locationStarted = false
     private var associationPending = false
 
     override fun onCreate() {
@@ -46,23 +49,84 @@ class RideService : Service() {
         createNotificationChannel()
         locationEngine = RideLocationEngine(this)
         settings = BikeSettingsStore(this)
+        serviceScope.launch {
+            val source = com.alban.ebike.terrain.IgnTerrainSource(this@RideService)
+            val tileStore = com.alban.ebike.terrain.ElevationTileStore(java.io.File(filesDir, "elevation-tiles-v1"))
+            var grid: com.alban.ebike.terrain.TerrainGrid? = null
+            while (isActive) {
+                val position = RideStateStore.state.value.position
+                if (position != null && locationStarted) {
+                    val current = grid
+                    val p = current?.let { com.alban.ebike.scene.GeoFrame.local(position.latitude, position.longitude, it.originLat, it.originLon) }
+                    if (current == null || p == null || current.sample(p.east, p.north) == null ||
+                        kotlin.math.abs(p.east) > current.halfSizeM - 80 || kotlin.math.abs(p.north) > current.halfSizeM - 80) {
+                        val cached = com.alban.ebike.terrain.RideElevation.cachedGrid(tileStore, position.latitude, position.longitude)
+                        if (cached != null) {
+                            grid = cached
+                            RideStateStore.setElevationGrid(cached)
+                        } else {
+                            val loaded = source.load(position.latitude, position.longitude,
+                                com.alban.ebike.terrain.RideElevation.HALF_SIZE, com.alban.ebike.terrain.RideElevation.SIZE)
+                            if (loaded != null && loaded.halfSizeM * 2 / (loaded.size - 1) <= 5.01) {
+                                grid = com.alban.ebike.terrain.TerrainGrid(loaded.originLat, loaded.originLon,
+                                    loaded.halfSizeM, loaded.size, loaded.heights, "IGN", true)
+                                RideStateStore.setElevationGrid(grid)
+                            }
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(2000)
+            }
+        }
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "$packageName:ride",
         ).apply { setReferenceCounted(false) }
+        serviceScope.launch(Dispatchers.Main.immediate) {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                RideStateStore.expireGpsSpeed()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+        serviceScope.launch {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                kotlinx.coroutines.delay(3000)
+                val ride = RideStateStore.state.value
+                if (ride.resting && ride.restTimeMs >= 3000) RideStateStore.evaluateWheelCalibration()
+            }
+        }
         gattClient = BikeGattClient(
             context = this,
-            onReady = {
-                if (associationPending) return@BikeGattClient
-                RideStateStore.setBluetoothReady(true)
+            onReady = { address ->
+                if (associationPending || shuttingDown) return@BikeGattClient
+                connectedBike = address
+                wheelInitialized = false
+                RideStateStore.setBluetoothReady(false)
+                RideStateStore.activateBike(address)
+                com.alban.ebike.data.BikeProfiles.activate(address)
+                val options = com.alban.ebike.data.BikeProfiles.preferences("ride-options")
+                RideStateStore.movingThresholdKmh = options.getFloat("moving-threshold", 4f)
+                RideStateStore.gradePointCount = options.getInt("grade-points", 10)
+                RideStateStore.setBluetoothReady(false)
                 acquireWakeLock()
-                serviceScope.launch { gattClient.setWheelCircumference(settings.circumferenceMm.first()) }
                 updateNotification(statusMessage())
                 openDashboard()
             },
-            onTelemetry = RideStateStore::ingestTelemetry,
+            onTelemetry = { address, telemetry ->
+                if (connectedBike == address && !shuttingDown) {
+                    if (!wheelInitialized && telemetry.circumferenceMm in 1000..4000) {
+                        val saved = settings.initializeWheel(telemetry.circumferenceMm, address)
+                        wheelInitialized = true
+                        if (saved != telemetry.circumferenceMm) gattClient.setWheelCircumference(saved, expectedAddress = address)
+                    }
+                    RideStateStore.setBluetoothReady(wheelInitialized)
+                    RideStateStore.ingestTelemetry(telemetry)
+                }
+            },
             onStatus = RideStateStore::setBluetoothStatus,
             onDisconnected = {
+                connectedBike = null
+                wheelInitialized = false
                 BikeArrivalNotification.dismiss(this)
                 RideStateStore.setBluetoothReady(false)
                 if (!locationStarted) releaseWakeLock()
@@ -74,6 +138,12 @@ class RideService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            stopForDismissal()
+            return START_NOT_STICKY
+        }
+        if (intent?.getBooleanExtra(EXTRA_VISIBLE, false) == true) {
+            com.alban.ebike.companion.PresenceWatchdog.rearm(this)
+        } else if (com.alban.ebike.companion.PresenceWatchdog.blocked(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -90,10 +160,10 @@ class RideService : Service() {
             RideStateStore.setBluetoothReady(false)
             dashboardOpenedForConnection = false
             updateNotification("Association ESP32 en cours")
-            return START_STICKY
+            return START_NOT_STICKY
         }
         if (intent?.action == ACTION_RESUME) associationPending = false
-        if (associationPending) return START_STICKY
+        if (associationPending) return START_NOT_STICKY
         gattClient.start()
         if (allowLocation) {
             locationEngine.start()
@@ -107,20 +177,39 @@ class RideService : Service() {
             ACTION_SET_CIRCUMFERENCE -> {
                 intent.getIntExtra(EXTRA_CIRCUMFERENCE_MM, -1)
                     .takeIf { it in 1000..4000 }
-                    ?.let { gattClient.setWheelCircumference(it) }
+                    ?.let { gattClient.setWheelCircumference(it, expectedAddress = intent.getStringExtra(EXTRA_BIKE_ID)) }
             }
             ACTION_TOGGLE_MODE -> {
                 val state = RideStateStore.state.value
-                if (state.bluetoothReady && state.modeSupported) serviceScope.launch {
-                    gattClient.setWheelCircumference(settings.circumferenceMm.first(), !state.speedMode)
+                val bike = intent.getStringExtra(EXTRA_BIKE_ID)
+                if (state.bluetoothReady && state.modeSupported && bike == connectedBike) {
+                    gattClient.setWheelCircumference(settings.currentCircumference(bike!!), !state.speedMode, bike)
                 }
             }
             else -> Unit
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
-    override fun onDestroy() {
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopForDismissal()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun stopForDismissal() {
+        com.alban.ebike.companion.PresenceWatchdog.dismiss(this)
+        shutdown()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun shutdown() {
+        if (shuttingDown) {
+            return
+        }
+        shuttingDown = true
+        connectedBike = null
+        notificationStarted = false
         BikeArrivalNotification.dismiss(this)
         gattClient.stop()
         locationEngine.stop()
@@ -128,7 +217,12 @@ class RideService : Service() {
         RideStateStore.setBluetoothStatus("Service arrêté")
         RideStateStore.setGpsStatus("GPS arrêté")
         releaseWakeLock()
+        RideStateStore.suspendTimers()
         serviceJob.cancel()
+    }
+
+    override fun onDestroy() {
+        shutdown()
         super.onDestroy()
     }
 
@@ -212,14 +306,15 @@ class RideService : Service() {
 
     companion object {
         private const val ACTION_TOGGLE_MODE = "com.alban.ebike.TOGGLE_MODE"
-        fun toggleMode(context: Context) {
+        fun toggleMode(context: Context, bikeId: String = com.alban.ebike.data.BikeProfiles.activeId.value) {
             ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)
-                .setAction(ACTION_TOGGLE_MODE).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
+                .setAction(ACTION_TOGGLE_MODE).putExtra(EXTRA_BIKE_ID, bikeId).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
         }
         private const val CHANNEL_ID = "ebike_ride"
         private const val NOTIFICATION_ID = 41
         private const val ACTION_SET_CIRCUMFERENCE = "com.alban.ebike.SET_CIRCUMFERENCE"
         private const val EXTRA_CIRCUMFERENCE_MM = "circumference_mm"
+        private const val EXTRA_BIKE_ID = "bike_profile"
         private const val EXTRA_VISIBLE = "visible_activity"
         private const val ACTION_STOP = "com.alban.ebike.STOP"
         private const val ACTION_ASSOCIATE = "com.alban.ebike.ASSOCIATE"
@@ -241,9 +336,10 @@ class RideService : Service() {
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
 
-        fun setWheelCircumference(context: Context, circumferenceMm: Int) {
+        fun setWheelCircumference(context: Context, circumferenceMm: Int, bikeId: String = com.alban.ebike.data.BikeProfiles.activeId.value) {
             val intent = Intent(context, RideService::class.java).apply {
                 action = ACTION_SET_CIRCUMFERENCE
+                putExtra(EXTRA_BIKE_ID, bikeId)
                 putExtra(EXTRA_VISIBLE, context is android.app.Activity)
                 putExtra(EXTRA_CIRCUMFERENCE_MM, circumferenceMm)
             }

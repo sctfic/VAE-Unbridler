@@ -4,6 +4,7 @@ import com.alban.ebike.model.TrackPoint
 import com.alban.ebike.terrain.TerrainGrid
 import com.alban.ebike.terrain.TerrainDetail
 import com.alban.ebike.terrain.GeometryCache
+import com.alban.ebike.terrain.TerrainSurface
 import kotlin.math.*
 
 data class SceneMesh(val surface: FloatArray, val grid: FloatArray, val contours: FloatArray,
@@ -12,6 +13,7 @@ data class SceneMesh(val surface: FloatArray, val grid: FloatArray, val contours
     val routeColors: FloatArray = floatArrayOf(),
     val roads: FloatArray = floatArrayOf(), val waterways: FloatArray = floatArrayOf(),
     val paths: FloatArray = floatArrayOf(), val buildings: FloatArray = floatArrayOf(),
+    val pathCenter: WorldPoint = center,
     val parcels: FloatArray = floatArrayOf(), val parcelLabels: List<com.alban.ebike.terrain.WorldLabel> = emptyList())
 
 object RideSceneMesh {
@@ -40,7 +42,7 @@ object RideSceneMesh {
         fun add(list: MutableList<Float>, p: WorldPoint) { list.add(p.east.toFloat()); list.add(p.north.toFloat()); list.add(p.height.toFloat()) }
         fun line(list: MutableList<Float>, a: WorldPoint, b: WorldPoint) { add(list, a); add(list, b) }
         // Dense IGN measurements retain their detail; interpolation refines the contour segments.
-        val n = if (terrain == null) 65 else min(detail.renderSize, if (terrain.size >= 97) terrain.size * 2 - 1 else 129)
+        val n = TerrainSurface.size(terrain, detail)
         val gridStride = (n - 1) / 32
         val contourStep = detail.contourM
         val half = terrain?.halfSizeM ?: 500.0
@@ -99,35 +101,40 @@ object RideSceneMesh {
 
     fun build(track: List<TrackPoint>, terrain: TerrainGrid?, speedMode: Boolean, heading: Double,
         metric: RouteMetric = RouteMetric.SPEED, detail: TerrainDetail = TerrainDetail.CLOSE,
-        cache: GeometryCache? = null, progress: (String) -> Unit = {}): SceneMesh {
-        val originLat = terrain?.originLat ?: track.lastOrNull()?.latitude ?: 0.0
-        val originLon = terrain?.originLon ?: track.lastOrNull()?.longitude ?: 0.0
+        cache: GeometryCache? = null, pauses: List<com.alban.ebike.model.RidePause> = emptyList(), window: SceneWindow = SceneWindow.ALL, progress: (String) -> Unit = {}): SceneMesh {
+        val visibleTrack = TrackWindow.select(track, window)
+        val originLat = terrain?.originLat ?: visibleTrack.lastOrNull()?.latitude ?: 0.0
+        val originLon = terrain?.originLon ?: visibleTrack.lastOrNull()?.longitude ?: 0.0
         val base = terrain?.heights?.filter { it.isFinite() }?.minOrNull()?.toDouble() ?: 0.0
         val ground = layers(terrain, detail, cache, progress)
         fun add(list: MutableList<Float>, p: WorldPoint) { list.add(p.east.toFloat()); list.add(p.north.toFloat()); list.add(p.height.toFloat()) }
         fun line(list: MutableList<Float>, a: WorldPoint, b: WorldPoint) { add(list, a); add(list, b) }
         // Drape the route onto the DEM, avoiding mixing GPS ellipsoid and DEM datums.
         // This is a ground-projected path, not a measured bridge/tunnel elevation.
-        val positions = track.map { point ->
+        val positions = visibleTrack.map { point ->
             val p = GeoFrame.local(point.latitude, point.longitude, originLat, originLon)
-            p.copy(height = (terrain?.sampleSmooth(p.east, p.north)?.minus(base) ?: 0.0) * VERTICAL_EXAGGERATION + 3)
+            p.copy(height = (terrain?.let { TerrainSurface.sample(it, detail, p.east, p.north) }?.minus(base) ?: 0.0) * VERTICAL_EXAGGERATION + 3)
         }
         val route = ArrayList<Float>()
         val colors = ArrayList<Float>()
-        val range = RouteColors.range(track, metric)
+        val range = RouteColors.range(visibleTrack, metric)
         positions.zipWithNext().forEachIndexed { i, (a, b) ->
-            if (!track[i + 1].segmentStart) {
+            if (!visibleTrack[i + 1].segmentStart) {
                 line(route, a, b)
-                colors.addAll(RouteColors.color(track[i], metric, range).toList())
-                colors.addAll(RouteColors.color(track[i + 1], metric, range).toList())
+                val resting = visibleTrack[i].resting
+                colors.addAll(if (resting) listOf(1f, 0f, 1f) else RouteColors.color(visibleTrack[i], metric, range).toList())
+                colors.addAll(if (resting) listOf(1f, 0f, 1f) else RouteColors.color(visibleTrack[i + 1], metric, range).toList())
             }
         }
+        // The route and the profile share the same distance window.
         val frame = positions.ifEmpty { listOf(WorldPoint(-45.0, -45.0), WorldPoint(45.0, 45.0)) }
         val center = WorldPoint((frame.minOf { it.east } + frame.maxOf { it.east }) / 2,
             (frame.minOf { it.north } + frame.maxOf { it.north }) / 2,
             (frame.minOf { it.height } + frame.maxOf { it.height }) / 2)
         return SceneMesh(ground.surface, ground.grid, ground.contours, route.toFloatArray(),
             positions.lastOrNull()?.let { floatArrayOf(it.east.toFloat(), it.north.toFloat(), it.height.toFloat()) } ?: floatArrayOf(),
-            frame, center, heading, speedMode, colors.toFloatArray())
+            frame, center, heading, speedMode, colors.toFloatArray(),
+            pathCenter = TrackCamera.barycenter(positions.filterIndexed { i, _ -> !visibleTrack[i].resting }
+                .ifEmpty { listOf(positions.lastOrNull() ?: center) }))
     }
 }

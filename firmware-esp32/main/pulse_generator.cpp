@@ -103,7 +103,8 @@ void PulseGenerator::emit_passthrough(uint32_t interval_us, uint16_t speed_centi
     }
 }
 
-void PulseGenerator::set_simulated_interval(uint32_t interval_us, uint16_t speed_centi_kmh) {
+void PulseGenerator::set_output_interval(uint32_t interval_us, uint16_t speed_centi_kmh,
+                                         bool simulated) {
     if (interval_us <= kPulseWidthUs + 100) {
         return;
     }
@@ -125,7 +126,7 @@ void PulseGenerator::set_simulated_interval(uint32_t interval_us, uint16_t speed
     const uint64_t alarm_at = next_start_us_;
     portEXIT_CRITICAL(&lock_);
 
-    telemetry_.update_motor(interval_us, speed_centi_kmh, true);
+    telemetry_.update_motor(interval_us, speed_centi_kmh, simulated);
     if (should_arm) {
         arm_from_task(alarm_at);
     }

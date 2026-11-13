@@ -14,6 +14,8 @@ class TelemetryStore {
     void update_motor(uint32_t interval_us, uint16_t speed_centi_kmh, bool simulated);
     void record_emitted_pulse();
     void record_emitted_pulse_from_isr();
+    void record_sensor_edge_from_isr(uint32_t interval_us, bool valid, bool dropped);
+    void record_rejected_edge();
     TelemetrySnapshot snapshot() const;
 
   private:

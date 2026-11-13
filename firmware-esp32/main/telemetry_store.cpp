@@ -53,4 +53,20 @@ TelemetrySnapshot TelemetryStore::snapshot() const {
     return copy;
 }
 
+void IRAM_ATTR TelemetryStore::record_sensor_edge_from_isr(uint32_t interval_us, bool valid,
+                                                          bool dropped) {
+    portENTER_CRITICAL_ISR(&lock_);
+    state_.sensor_interval_valid = valid;
+    state_.sensor_interval_us = interval_us;
+    ++state_.sensor_edges;
+    if (dropped) ++state_.dropped_edges;
+    portEXIT_CRITICAL_ISR(&lock_);
+}
+
+void TelemetryStore::record_rejected_edge() {
+    portENTER_CRITICAL(&lock_);
+    ++state_.rejected_edges;
+    portEXIT_CRITICAL(&lock_);
+}
+
 }  // namespace ebike

@@ -22,22 +22,27 @@ class RideLocationEngine(context: Context) {
     private val appContext = context.applicationContext
     private val client: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(appContext)
-    private var started = false
-    private var lastFixMs = 0L
+    @Volatile private var started = false
+    @Volatile private var generation = 0
+    private var worker: android.os.HandlerThread? = null
+    private val altitudeConverter by lazy {
+        if (android.os.Build.VERSION.SDK_INT >= 34) android.location.altitude.AltitudeConverter() else null
+    }
+    @Volatile private var lastFixMs = 0L
     private var lastHeartbeatMs = 0L
     private val locationManager = appContext.getSystemService(LocationManager::class.java)
     init {
         GpsDebugLog.initialize(appContext)
-        RideStateStore.movingThresholdKmh = appContext.getSharedPreferences("ride-options", Context.MODE_PRIVATE)
+        com.alban.ebike.data.BikeProfiles.initialize(appContext)
+        RideStateStore.movingThresholdKmh = com.alban.ebike.data.BikeProfiles.preferences("ride-options")
             .getFloat("moving-threshold", 4f).coerceIn(0f, 20f)
-        RideStateStore.gradePointCount = appContext.getSharedPreferences("ride-options", Context.MODE_PRIVATE)
+        RideStateStore.gradePointCount = com.alban.ebike.data.BikeProfiles.preferences("ride-options")
             .getInt("grade-points", 10).coerceIn(3, 30)
     }
     private val handler = Handler(Looper.getMainLooper())
     private val staleCheck = object : Runnable {
         override fun run() {
             if (!started) return
-            RideStateStore.expireGpsSpeed()
             val now = SystemClock.elapsedRealtime()
             if (now - lastHeartbeatMs >= 5000) {
                 lastHeartbeatMs = now
@@ -52,8 +57,19 @@ class RideLocationEngine(context: Context) {
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
+            if (!started) return
             lastFixMs = SystemClock.elapsedRealtime()
-            result.locations.forEach(RideStateStore::ingestLocation)
+            val epoch = generation
+            val locations = result.locations.map { original ->
+                android.location.Location(original).also { location ->
+                    if (android.os.Build.VERSION.SDK_INT >= 34 && location.hasAltitude() && !location.hasMslAltitude()) {
+                        try { altitudeConverter?.addMslAltitudeToLocation(appContext, location) }
+                        catch (error: java.io.IOException) { GpsDebugLog.record("MSL conversion unavailable: ${error.javaClass.simpleName}") }
+                        catch (error: IllegalArgumentException) { GpsDebugLog.record("MSL conversion invalid fix") }
+                    }
+                }
+            }
+            handler.post { if (started && generation == epoch) locations.forEach(RideStateStore::ingestLocation) }
         }
         override fun onLocationAvailability(availability: LocationAvailability) {
             GpsDebugLog.record("provider available=${availability.isLocationAvailable}")
@@ -70,20 +86,25 @@ class RideLocationEngine(context: Context) {
         GpsDebugLog.record("START model=${android.os.Build.MODEL} api=${android.os.Build.VERSION.SDK_INT} " +
             "locationEnabled=${locationManager.isLocationEnabled}")
         lastFixMs = 0L
+        generation++
         started = true
+        worker = android.os.HandlerThread("GPS-altitude").apply { start() }
         RideStateStore.resetGpsSpeed()
         handler.removeCallbacks(staleCheck)
         handler.post(staleCheck)
         RideStateStore.setGpsStatus("Recherche GPS · sortir à ciel ouvert")
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 500)
             .setMinUpdateIntervalMillis(500)
+            .setMaxUpdateAgeMillis(2000)
+            .setMaxUpdateDelayMillis(0)
             .setWaitForAccurateLocation(false)
             .build()
         try {
-            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
-                .addOnSuccessListener { GpsDebugLog.record("SUBSCRIBED high accuracy interval=1000ms") }
+            client.requestLocationUpdates(request, callback, worker!!.looper)
+                .addOnSuccessListener { GpsDebugLog.record("SUBSCRIBED high accuracy interval=500ms") }
                 .addOnFailureListener {
                     started = false
+                    worker?.quitSafely(); worker = null
                     RideStateStore.setGpsStatus("GPS indisponible · vérifier la localisation")
                     Log.e("EBikeGPS", "Location subscription failed", it)
                     GpsDebugLog.record("SUBSCRIBE FAILED ${it.javaClass.simpleName}: ${it.message}")
@@ -91,15 +112,17 @@ class RideLocationEngine(context: Context) {
         } catch (error: SecurityException) {
             GpsDebugLog.record("SECURITY ${error.message}")
             started = false
+            worker?.quitSafely(); worker = null
             RideStateStore.setGpsStatus("Autorisation GPS nécessaire")
         }
     }
 
     fun stop() {
         GpsDebugLog.record("STOP location service")
-        if (!started) return
-        started = false
         handler.removeCallbacks(staleCheck)
+        started = false
+        generation++
+        worker?.quitSafely(); worker = null
         RideStateStore.resetGpsSpeed()
         client.removeLocationUpdates(callback)
     }

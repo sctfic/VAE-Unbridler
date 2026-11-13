@@ -1,9 +1,9 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.6** — auteur **Lopez Alban**.
+Version Android **0.4.20** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
-Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les nouveautés 0.4.6](RELEASE_0.4.6.md).
+Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les changements 0.4.20](RELEASE_0.4.20.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
@@ -57,7 +57,7 @@ La liaison directe suppose une entrée moteur à rappel 3,3 V compatible, une ma
 ### Diagnostic GPS et journal local
 
 La grande vitesse privilégie le GPS valide ou estimé (effet glitch), puis la roue si le Bluetooth est connecté
-(libellé **ROUE**), sinon affiche un tiret. Un zéro GPS valide reste prioritaire.
+(libellé **ROUE**), sinon affiche un tiret. Une vitesse roue positive et cohérente prend la priorité sur un zéro GPS valide.
 Le bas du cadran affiche fournisseur, précision horizontale, âge de la mesure,
 vitesse brute, incertitude de vitesse et décision du filtre. Sans mesures, il affiche
 l’état de la localisation système et le temps depuis le dernier retour du fournisseur.
@@ -68,6 +68,23 @@ latitude/longitude. Écriture en arrière-plan, rotation à 4 Mio et deux archiv
 (`gps-1.log`, `gps-2.log`) : environ 12 Mio maximum. Les plus anciens événements
 sont remplacés ; une surcharge extrême peut perdre des lignes. Les logs survivent
 au redémarrage et à une mise à jour, mais pas à la désinstallation/effacement des données.
+
+Depuis la 0.4.18, ce même journal conserve chaque télémétrie BLE reçue : séquence,
+temps de fonctionnement de l'ESP32, périodes roue/moteur, vitesses, compteurs de
+tours et d'impulsions, circonférence et mode. La vitesse GPS et sa validité sont
+ajoutées pour comparer les mesures au même instant, sans coordonnées. Les étapes
+de connexion BLE sont également conservées. Les anciennes versions ne permettaient
+pas de diagnostiquer une perte d'impulsions à partir du seul journal GPS.
+
+Avec le firmware correspondant, les lignes `SENSOR` ajoutent `rawIntervalUs`
+(dernier intervalle brut entre fronts descendants GPIO 5, avant filtrage),
+`edges`, `rejectedEdges` et `queueDroppedEdges`. Les lignes `BLE` indiquent
+`wheelUs` (intervalle retenu) et `motorUs` (intervalle commandé), en microsecondes.
+Les diagnostics bruts sont des instantanés à 5 Hz ; ils ne constituent pas une
+trace exhaustive de tous les fronts. Les numéros `seq` associent les deux lignes.
+
+Le [correctif Hardware v1 / app 0.4.18](RELEASE_0.4.18.md) décrit les limites du
+diagnostic et les essais à effectuer sur le vélo.
 
 Au prochain branchement USB avec débogage autorisé, récupérer chaque fichier présent
 avec la version debug installée, sans réinstaller/effacer l’application :

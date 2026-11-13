@@ -1,7 +1,5 @@
 #include "wheel_capture.hpp"
 
-#include <algorithm>
-
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -11,9 +9,6 @@
 namespace ebike {
 namespace {
 constexpr char kTag[] = "wheel";
-constexpr int64_t kDebounceUs = 4000;
-constexpr int64_t kMinimumIntervalUs = 30000;     // 283 km/h with a 2.36 m wheel
-constexpr int64_t kMaximumIntervalUs = 15'000'000;
 constexpr TickType_t kTaskWaitTicks = pdMS_TO_TICKS(100);
 }  // namespace
 
@@ -45,8 +40,15 @@ void WheelCapture::begin() {
 void IRAM_ATTR WheelCapture::gpio_isr(void* context) {
     auto* self = static_cast<WheelCapture*>(context);
     const int64_t timestamp_us = esp_timer_get_time();
+    const bool interval_valid = self->last_isr_edge_us_ >= 0;
+    const int64_t raw_interval = interval_valid ? timestamp_us - self->last_isr_edge_us_ : 0;
+    const uint32_t interval_us = raw_interval > UINT32_MAX ? UINT32_MAX :
+        static_cast<uint32_t>(raw_interval);
+    self->last_isr_edge_us_ = timestamp_us;
     BaseType_t higher_priority_task_woken = pdFALSE;
-    xQueueSendFromISR(self->edge_queue_, &timestamp_us, &higher_priority_task_woken);
+    const BaseType_t queued = xQueueSendFromISR(self->edge_queue_, &timestamp_us,
+                                                &higher_priority_task_woken);
+    self->telemetry_.record_sensor_edge_from_isr(interval_us, interval_valid, queued != pdTRUE);
     if (higher_priority_task_woken == pdTRUE) {
         portYIELD_FROM_ISR();
     }
@@ -57,65 +59,65 @@ void WheelCapture::task_entry(void* context) {
 }
 
 void WheelCapture::task() {
+    bool previous_speed_mode = config_.speed_enabled();
     while (true) {
         const bool speed_mode = config_.speed_enabled();
-        if (!speed_mode && telemetry_.snapshot().simulated_output) {
-            // Cancel synthetic deadlines on the real-time core, never from BLE.
-            pulse_.stop();
-            telemetry_.update_motor(0, 0, false);
+        if (speed_mode != previous_speed_mode) {
+            previous_speed_mode = speed_mode;
+            // Recompute the retained cadence on the real-time core, never in BLE.
+            // Standard also needs a continuous cadence while bad input is rejected.
+            const RuntimeConfig config = config_.snapshot();
+            const auto plan = make_speed_plan(config.circumference_mm, config.threshold_centi_kmh,
+                                              period_filter_.interval_us(), speed_mode);
+            if (plan.motor_interval_us != 0) {
+                pulse_.set_output_interval(plan.motor_interval_us, plan.motor_speed_centi_kmh,
+                                            plan.simulated);
+            } else {
+                pulse_.stop();
+                telemetry_.update_motor(0, 0, false);
+            }
         }
         int64_t edge_us = 0;
         if (xQueueReceive(edge_queue_, &edge_us, kTaskWaitTicks) == pdTRUE) {
             handle_edge(edge_us);
-            continue;
         }
 
-        if (!stopped_ && last_edge_us_ != 0) {
-            const int64_t silence_us = esp_timer_get_time() - last_edge_us_;
-            const int64_t stop_after_us = std::max<int64_t>(1'500'000, last_interval_us_ * 3LL);
-            if (silence_us > stop_after_us) {
-                mark_stopped();
-            }
+        // Check even when the queue contains rejected electrical noise.
+        if (period_filter_.expired(esp_timer_get_time())) {
+            mark_stopped();
         }
     }
 }
 
 void WheelCapture::handle_edge(int64_t edge_us) {
-    if (last_edge_us_ == 0) {
-        last_edge_us_ = edge_us;
-        stopped_ = false;
+    const RuntimeConfig config = config_.snapshot();
+    const auto result = period_filter_.accept(edge_us, config.circumference_mm);
+    if (result == WheelPeriodFilter::Result::ignored) {
+        telemetry_.record_rejected_edge();
+        return;
+    }
+    if (result == WheelPeriodFilter::Result::primed) {
+        pulse_.stop();
+        telemetry_.set_stopped(config_.snapshot().circumference_mm);
         if (!config_.speed_enabled()) pulse_.emit_passthrough(0, 0);
         return;
     }
 
-    const int64_t interval_us = edge_us - last_edge_us_;
-    if (interval_us < kDebounceUs) {
-        return;
-    }
-    last_edge_us_ = edge_us;
-    if (interval_us < kMinimumIntervalUs || interval_us > kMaximumIntervalUs) {
-        return;
-    }
-
-    last_interval_us_ = static_cast<uint32_t>(interval_us);
+    const uint32_t interval_us = period_filter_.interval_us();
     ++revolutions_;
-    stopped_ = false;
 
-    const RuntimeConfig config = config_.snapshot();
     const SpeedPlan plan = make_speed_plan(config.circumference_mm, config.threshold_centi_kmh,
-                                           last_interval_us_, config_.speed_enabled());
-    telemetry_.update_wheel(last_interval_us_, plan.wheel_speed_centi_kmh, revolutions_,
+                                           interval_us, config_.speed_enabled());
+    telemetry_.update_wheel(interval_us, plan.wheel_speed_centi_kmh, revolutions_,
                             config.circumference_mm);
 
-    if (!plan.simulated) {
-        pulse_.emit_passthrough(plan.motor_interval_us, plan.motor_speed_centi_kmh);
-        return;
-    }
-    pulse_.set_simulated_interval(plan.motor_interval_us, plan.motor_speed_centi_kmh);
+    // Keep emitting the last validated cadence through rejected sensor edges.
+    // Rejections never trigger an immediate extra contact pulse.
+    pulse_.set_output_interval(plan.motor_interval_us, plan.motor_speed_centi_kmh, plan.simulated);
 }
 
 void WheelCapture::mark_stopped() {
-    stopped_ = true;
+    period_filter_.reset();
     pulse_.stop();
     telemetry_.set_stopped(config_.snapshot().circumference_mm);
 }

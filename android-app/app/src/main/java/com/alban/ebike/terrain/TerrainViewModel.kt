@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alban.ebike.scene.GeoFrame
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -43,6 +45,71 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
     private val parcelRequests = SharedTileRequests<ElevationTileKey, List<Parcel>>(viewModelScope) { key ->
         cadastre.load(key) { diagnostics.report("CAD", it) }
     }
+    private val objectRequests = SharedTileRequests<ElevationTileKey, MapFeatureArea?>(viewModelScope) { key ->
+        objects.loadTile(key) { diagnostics.report("OSM", it) }
+    }
+    private val prefetchSlots = Semaphore(2)
+    @Volatile private var neighbourPlan = listOf<List<ElevationTileKey>>(emptyList(), emptyList(), emptyList())
+    private var neighbourJobs = emptyList<Job>()
+    private var previousFocus: Pair<Double, Double>? = null
+    private var directionEast = 0.0
+    private var directionNorth = 0.0
+    @Volatile private var objectLayersEnabled = true
+
+    fun requestMovingNeighbours(lat: Double, lon: Double, layers: Map<String, Boolean>) {
+        if (cachePaused) return
+        val p = ElevationTiles.projected(lat, lon)
+        previousFocus?.let { old ->
+            if (hypot(p.first - old.first, p.second - old.second) >= 3) {
+                directionEast = p.first - old.first; directionNorth = p.second - old.second
+                previousFocus = p
+            }
+        } ?: run { previousFocus = p }
+        val osm = listOf("roads", "paths", "water", "buildings").any { layers[it] == true }
+        if (osm != objectLayersEnabled) { objectLayersEnabled = osm; mapRegion = null; mapRetryAfter = 0 }
+        val visible = requested?.region
+        val visibleGrid = visible?.let { r -> val c = r.center
+            TerrainGrid(c.first, c.second, r.groundHalf, 2, FloatArray(4), "", true) }
+        val coarse = visible?.coarseKeys().orEmpty()
+        val coarseRing = coarse.groupBy { it.level }.flatMap { (level, keys) ->
+            NeighbourPrefetch.expanded(keys, ElevationTiles.key(lat, lon, level), directionEast, directionNorth) }
+        neighbourPlan = listOf(
+            (NeighbourPrefetch.ordered(ElevationTiles.key(lat, lon), directionEast, directionNorth) + coarseRing).distinct(),
+            if (osm) NeighbourPrefetch.expanded(visibleGrid?.let { NeighbourPrefetch.covering(it, 2) }
+                ?: listOf(ElevationTiles.key(lat, lon, 2)), ElevationTiles.key(lat, lon, 2), directionEast, directionNorth) else emptyList(),
+            if (layers["parcels"] == true) NeighbourPrefetch.expanded(ElevationTiles.neighbours(ElevationTiles.key(lat, lon, 1)),
+                ElevationTiles.key(lat, lon, 1), directionEast, directionNorth) else emptyList())
+        if (neighbourJobs.any { it.isActive }) return
+        neighbourJobs = (0..2).map { source -> viewModelScope.launch(Dispatchers.IO) {
+            val completedUntil = HashMap<ElevationTileKey, Long>()
+            while (isActive) {
+                if (cachePaused || mutableOfflineRunning.value) { delay(1000); continue }
+                val now = LoadDiagnostics.now()
+                val manager = getApplication<Application>().getSystemService(android.net.ConnectivityManager::class.java)
+                val network = if (manager == null) null else manager.getNetworkCapabilities(manager.activeNetwork)
+                if (network?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) != true) {
+                    delay(2000); continue
+                }
+                val tile = neighbourPlan[source].firstOrNull { (completedUntil[it] ?: 0) <= now }
+                if (tile == null) { delay(1000); continue }
+                val success = try {
+                    prefetchSlots.withPermit {
+                        // Recheck after waiting for a slot: disabled layers must not start a new fetch.
+                        if (tile !in neighbourPlan[source] || cachePaused) false else when (source) {
+                            0 -> downloads.get(tile)?.all { it.isFinite() } == true
+                            1 -> objectRequests.get(tile)?.complete == true
+                            else -> { parcelRequests.get(tile); true }
+                        }
+                    }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { false }
+                completedUntil[tile] = LoadDiagnostics.now() + if (success) 86_400_000 else 120_000
+                if (completedUntil.size > 256) completedUntil.keys.retainAll(neighbourPlan[source].toSet())
+                diagnostics.report("VOISINS", "Préchargement voisin · ${listOf("relief", "objets", "cadastre")[source]} · ${if (success) "en cache" else "réessai différé"}")
+            }
+        } }
+    }
+
     fun requestParcels(lat: Double, lon: Double, enabled: Boolean) {
         if (cachePaused) return
         if (!enabled) { parcelJob?.cancel(); parcelKey = null; mutableParcels.value = emptyList(); return }
@@ -110,11 +177,7 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
                 "IGN PROGRESSIF · $cached CACHE / $fetched ACQUISES · ${order.count { it in loaded }}/${order.size} TUILES")
             // Never replace usable terrain with an empty intermediate grid.
             if (grid.real || mutableTerrain.value == null) mutableTerrain.value = grid
-            val focusCenter = ElevationTiles.coordinate((request.focus.x + .5) * request.focus.side,
-                (request.focus.y + .5) * request.focus.side)
-            val localRegion = ElevationTiles.region(focusCenter.first, focusCenter.second, 900.0)
-            requestObjects(localRegion, TerrainGrid(focusCenter.first, focusCenter.second, 900.0, 2,
-                FloatArray(4), "", true))
+            requestObjects(region, grid)
         }
         publish()
         for (key in order) {
@@ -155,15 +218,27 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun requestObjects(region: ElevationRegion, grid: TerrainGrid) {
-        if (cachePaused) return
+        if (cachePaused || !objectLayersEnabled) return
         if (mapRegion == region && (mapJob?.isActive == true || LoadDiagnostics.now() < mapRetryAfter)) return
         mapRegion = region
         mapJob?.cancel()
         mapJob = viewModelScope.launch(Dispatchers.IO) {
             do {
             diagnostics.begin("OSM", "Cache objets, indépendant du zoom")
-            val area = objects.load(grid) { diagnostics.report("OSM", it) }
-            ensureActive()
+            val found = ArrayList<MapFeature>()
+            var complete = true
+            val keys = NeighbourPrefetch.covering(grid, 2)
+            for (tile in keys) {
+                if (!objectLayersEnabled) { complete = false; break }
+                val loaded = objectRequests.get(tile)
+                ensureActive()
+                if (loaded == null) complete = false else {
+                    found.addAll(loaded.features); complete = complete && loaded.complete
+                    mutableMap.value = MapFeatureArea(grid.originLat, grid.originLon, grid.halfSizeM, true, found.toList(), false)
+                }
+            }
+            val area = if (found.isEmpty() && !complete) null else
+                MapFeatureArea(grid.originLat, grid.originLon, grid.halfSizeM, true, found, complete)
             if (area != null) mutableMap.value = area
             mapRetryAfter = LoadDiagnostics.now() + if (area?.complete != true) 120_000 else 86_400_000
             diagnostics.end("OSM")
@@ -218,7 +293,7 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
                 for (key in elevation) step {
                     downloads.get(key)?.all { it.isFinite() } == true && File(root, "elevation-tiles-v1/${key.fileName}").exists()
                 }
-                for (key in map) step { objects.loadTile(key)?.complete == true }
+                for (key in map) step { objectRequests.get(key)?.complete == true }
                 for (key in parcels) step {
                     cadastre.load(key, refreshPartial = true) {}
                     val file = File(root, "cadastre-pci-v1/${key.level}-${key.x}-${key.y}.json")
@@ -250,9 +325,9 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
         mutableCacheClearing.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val jobs = listOfNotNull(offlineJob, terrainJob, mapJob, parcelJob)
+                val jobs = listOfNotNull(offlineJob, terrainJob, mapJob, parcelJob) + neighbourJobs
                 jobs.forEach { it.cancel() }; jobs.joinAll()
-                downloads.cancelAll(); parcelRequests.cancelAll()
+                downloads.cancelAll(); parcelRequests.cancelAll(); objectRequests.cancelAll()
                 store.clearMemory(); objects.clearMemory(); ign.clearMemory(); fallback.clearMemory(); geometryCache.clearMemory()
                 mutableTerrain.value = null; mutableMap.value = null; mutableParcels.value = emptyList()
                 requested = null; mapRegion = null; parcelKey = null

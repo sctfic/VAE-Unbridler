@@ -2,6 +2,11 @@ package com.alban.ebike.data
 
 import com.alban.ebike.model.AltitudePoint
 
+data class GradeEstimate(val percent: Float, val centerDistanceM: Double,
+    val startDistanceM: Double, val endDistanceM: Double) {
+    val spanM get() = endDistanceM - startDistanceM
+}
+
 /** Fixed spatial scale, independent of GPS sampling rate or time spent stopped. */
 class DistanceAltitudeProfile {
     private val points = ArrayDeque<AltitudePoint>()
@@ -21,7 +26,10 @@ class DistanceAltitudeProfile {
     }
 
     fun grade(sampleCount: Int = DEFAULT_GRADE_POINTS): Float? =
-        if (pendingBreak) null else terminalGrade(points.toList(), sampleCount)
+        estimate(sampleCount)?.percent
+
+    fun estimate(sampleCount: Int = DEFAULT_GRADE_POINTS): GradeEstimate? =
+        if (pendingBreak) null else terminalEstimate(points.toList(), sampleCount)
 
     companion object {
         const val WINDOW_M = 500.0
@@ -35,7 +43,10 @@ class DistanceAltitudeProfile {
         }
 
         /** Last N accepted moving GPS samples, with no fixed distance window. */
-        fun terminalGrade(points: List<AltitudePoint>, sampleCount: Int = DEFAULT_GRADE_POINTS): Float? {
+        fun terminalGrade(points: List<AltitudePoint>, sampleCount: Int = DEFAULT_GRADE_POINTS): Float? =
+            terminalEstimate(points, sampleCount)?.percent
+
+        fun terminalEstimate(points: List<AltitudePoint>, sampleCount: Int = DEFAULT_GRADE_POINTS): GradeEstimate? {
             require(sampleCount in 3..30)
             val recent = ArrayList<AltitudePoint>(sampleCount)
             for (index in points.indices.reversed()) {
@@ -51,7 +62,8 @@ class DistanceAltitudeProfile {
             val meanY = recent.map { it.altitudeM.toDouble() }.average()
             val variance = recent.sumOf { val x = it.distanceM - origin - meanX; x * x }
             if (variance <= 1e-9) return null
-            return (100 * recent.sumOf { (it.distanceM - origin - meanX) * (it.altitudeM - meanY) } / variance).toFloat()
+            val percent = (100 * recent.sumOf { (it.distanceM - origin - meanX) * (it.altitudeM - meanY) } / variance).toFloat()
+            return GradeEstimate(percent, origin + meanX, recent.last().distanceM, recent.first().distanceM)
         }
     }
 }

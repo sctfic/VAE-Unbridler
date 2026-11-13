@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DistanceAltitudeProfileTest {
+    @Test fun regressionIsLocatedAtMeanDistanceInsteadOfLatestFix() {
+        val profile = DistanceAltitudeProfile()
+        for (i in 0..9) profile.update(i * 2.0, 100f + i * .2f)
+        val estimate = profile.estimate()!!
+        assertEquals(10f, estimate.percent, .001f)
+        assertEquals(9.0, estimate.centerDistanceM, 0.0)
+        assertEquals(0.0, estimate.startDistanceM, 0.0)
+        assertEquals(18.0, estimate.endDistanceM, 0.0)
+        profile.update(20.0, null)
+        assertNull(profile.estimate())
+        profile.update(22.0, 200f, true)
+        assertNull(profile.estimate())
+    }
     @Test fun stationaryAltitudeNoiseDoesNotChangeProfile() {
         val profile = DistanceAltitudeProfile()
         val initial = profile.update(0.0, 100f)
