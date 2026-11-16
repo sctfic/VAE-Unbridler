@@ -16,3 +16,4 @@ tools/.downloads/
 # IDEs
 .idea/
 *.iml
+tools/__pycache__/

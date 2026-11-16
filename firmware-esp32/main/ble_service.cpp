@@ -1,3 +1,4 @@
+#include "esp_app_desc.h"
 #include "ble_service.hpp"
 #include "status_led.hpp"
 
@@ -32,15 +33,22 @@ ble_uuid128_t kConfigUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e,
                                               0x9f, 0x4d, 0x8a, 0x9b, 0x02, 0x00, 0xf5, 0xa6);
 ble_uuid128_t kSensorDiagnosticsUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
                                                         0x9f, 0x4d, 0x8a, 0x9b, 0x03, 0x00, 0xf5, 0xa6);
+ble_uuid128_t kFirmwareUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
+                                                0x9f, 0x4d, 0x8a, 0x9b, 0x04, 0x00, 0xf5, 0xa6);
+ble_uuid128_t kOtaControlUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
+                                               0x9f, 0x4d, 0x8a, 0x9b, 0x05, 0x00, 0xf5, 0xa6);
+ble_uuid128_t kOtaDataUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
+                                            0x9f, 0x4d, 0x8a, 0x9b, 0x06, 0x00, 0xf5, 0xa6);
 }  // namespace
 
 BleService* BleService::instance_ = nullptr;
 
 BleService::BleService(ConfigStore& config, TelemetryStore& telemetry)
-    : config_(config), telemetry_(telemetry) {}
+    : config_(config), telemetry_(telemetry), ota_(config, telemetry) {}
 
 void BleService::begin() {
     instance_ = this;
+    ota_.begin();
     const esp_err_t init_result = nimble_port_init();
     if (init_result != ESP_OK) {
         ESP_LOGE(kTag, "BLE initialization failed: %s", esp_err_to_name(init_result));
@@ -69,6 +77,7 @@ void BleService::host_task(void*) {
 void BleService::notify_task(void* context) {
     auto* self = static_cast<BleService*>(context);
     while (true) {
+        self->ota_.tick(self->ble_ready_);
         self->send_telemetry();
         vTaskDelay(pdMS_TO_TICKS(200));
     }
@@ -88,7 +97,7 @@ void BleService::on_sync() {
 }
 
 void BleService::register_gatt() {
-    static ble_gatt_chr_def characteristics[4]{};
+    static ble_gatt_chr_def characteristics[7]{};
     characteristics[0].uuid = &kTelemetryUuid.u;
     characteristics[0].access_cb = &BleService::gatt_access;
     characteristics[0].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
@@ -103,6 +112,19 @@ void BleService::register_gatt() {
     characteristics[2].access_cb = &BleService::gatt_access;
     characteristics[2].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
     characteristics[2].val_handle = &sensor_diagnostics_handle_;
+
+    characteristics[3].uuid = &kFirmwareUuid.u;
+    characteristics[3].access_cb = &BleService::gatt_access;
+    characteristics[3].flags = BLE_GATT_CHR_F_READ;
+    characteristics[3].val_handle = &firmware_handle_;
+    characteristics[4].uuid = &kOtaControlUuid.u;
+    characteristics[4].access_cb = &BleService::gatt_access;
+    characteristics[4].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE;
+    characteristics[4].val_handle = &ota_control_handle_;
+    characteristics[5].uuid = &kOtaDataUuid.u;
+    characteristics[5].access_cb = &BleService::gatt_access;
+    characteristics[5].flags = BLE_GATT_CHR_F_WRITE;
+    characteristics[5].val_handle = &ota_data_handle_;
 
     static ble_gatt_svc_def services[2]{};
     services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
@@ -143,6 +165,7 @@ void BleService::start_advertising() {
         ESP_LOGE(kTag, "Unable to advertise: %d", result);
         status_led::fault();
     } else {
+        ble_ready_ = true;
         status_led::ready();
     }
 }
@@ -161,6 +184,7 @@ int BleService::gap_event(ble_gap_event* event, void* context) {
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
             self->connection_handle_ = kNoConnection;
+            self->ota_.disconnected();
             status_led::connected(false);
             ESP_LOGI(kTag, "Android disconnected");
             self->start_advertising();
@@ -177,6 +201,11 @@ int BleService::gatt_access(uint16_t, uint16_t attribute_handle, ble_gatt_access
     if (instance_ == nullptr) {
         return BLE_ATT_ERR_UNLIKELY;
     }
+    if (attribute_handle == instance_->firmware_handle_) {
+        if (context->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_UNLIKELY;
+        const char* version = esp_app_get_description()->version;
+        return os_mbuf_append(context->om, version, std::strlen(version)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
     if (attribute_handle == instance_->telemetry_handle_) {
         return context->op == BLE_GATT_ACCESS_OP_READ_CHR ? instance_->read_telemetry(context)
                                                            : BLE_ATT_ERR_UNLIKELY;
@@ -192,6 +221,20 @@ int BleService::gatt_access(uint16_t, uint16_t attribute_handle, ble_gatt_access
     if (attribute_handle == instance_->sensor_diagnostics_handle_) {
         return context->op == BLE_GATT_ACCESS_OP_READ_CHR ? instance_->read_sensor_diagnostics(context)
                                                          : BLE_ATT_ERR_UNLIKELY;
+    }
+    if (attribute_handle == instance_->ota_control_handle_ && context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        const auto status = instance_->ota_.status();
+        return os_mbuf_append(context->om, &status, sizeof(status)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if ((attribute_handle == instance_->ota_control_handle_ || attribute_handle == instance_->ota_data_handle_) &&
+        context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t buffer[244];
+        const size_t size = OS_MBUF_PKTLEN(context->om);
+        if (!size || size > sizeof(buffer) || os_mbuf_copydata(context->om, 0, size, buffer) != 0)
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        const bool ok = attribute_handle == instance_->ota_control_handle_
+            ? instance_->ota_.control(buffer, size) : instance_->ota_.write(buffer, size);
+        return ok ? 0 : BLE_ATT_ERR_VALUE_NOT_ALLOWED;
     }
     return BLE_ATT_ERR_UNLIKELY;
 }
@@ -231,6 +274,7 @@ int BleService::read_config(ble_gatt_access_ctxt* context) {
 }
 
 int BleService::write_config(ble_gatt_access_ctxt* context) {
+    if (ota_.busy()) return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
     if (OS_MBUF_PKTLEN(context->om) != sizeof(BleConfigPacket)) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }

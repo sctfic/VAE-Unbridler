@@ -9,6 +9,12 @@ object BleProtocol {
     val telemetryUuid: UUID = UUID.fromString("a6f50001-9b8a-4d9f-a0da-9e9d873d1101")
     val configUuid: UUID = UUID.fromString("a6f50002-9b8a-4d9f-a0da-9e9d873d1101")
     val sensorDiagnosticsUuid: UUID = UUID.fromString("a6f50003-9b8a-4d9f-a0da-9e9d873d1101")
+    val firmwareUuid: UUID = UUID.fromString("a6f50004-9b8a-4d9f-a0da-9e9d873d1101")
+    fun decodeFirmwareVersion(bytes: ByteArray): String? {
+        if (bytes.size !in 1..32) return null
+        val value = bytes.toString(Charsets.UTF_8).trim()
+        return value.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+-]{0,31}")) }
+    }
     const val protocolVersion = 1
     const val defaultCircumferenceMm = 2360
     const val defaultThresholdCentiKmh = 2220

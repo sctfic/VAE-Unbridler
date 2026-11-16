@@ -28,12 +28,19 @@ import kotlinx.coroutines.isActive
 import androidx.core.content.ContextCompat
 import android.Manifest
 
+import com.alban.ebike.firmware.FirmwareUpdater
+import com.alban.ebike.firmware.FirmwareUpdateStore
+import com.alban.ebike.firmware.UpdatePhase
+import kotlinx.coroutines.flow.sample
+
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class RideService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
     private lateinit var gattClient: BikeGattClient
     private lateinit var locationEngine: RideLocationEngine
     private lateinit var settings: BikeSettingsStore
+    private lateinit var firmwareUpdater: FirmwareUpdater
     private lateinit var wakeLock: PowerManager.WakeLock
     @Volatile private var connectedBike: String? = null
     private var wheelInitialized = false
@@ -109,6 +116,7 @@ class RideService : Service() {
                 RideStateStore.gradePointCount = options.getInt("grade-points", 10)
                 RideStateStore.setBluetoothReady(false)
                 acquireWakeLock()
+                firmwareUpdater.connected()
                 updateNotification(statusMessage())
                 openDashboard()
             },
@@ -124,16 +132,30 @@ class RideService : Service() {
                 }
             },
             onStatus = RideStateStore::setBluetoothStatus,
+            onFirmwareVersion = RideStateStore::setFirmwareVersion,
+            onFirmwareInfo = FirmwareUpdateStore::info,
             onDisconnected = {
                 connectedBike = null
                 wheelInitialized = false
                 BikeArrivalNotification.dismiss(this)
                 RideStateStore.setBluetoothReady(false)
-                if (!locationStarted) releaseWakeLock()
+                if (!locationStarted && !FirmwareUpdateStore.state.value.busy) releaseWakeLock()
                 dashboardOpenedForConnection = false
                 updateNotification(statusMessage())
             },
         )
+        if (FirmwareUpdateStore.state.value.busy) FirmwareUpdateStore.update {
+            it.copy(phase = UpdatePhase.ERROR, detail = "Service redémarré : vérifiez la version de l’ESP32 avant de réessayer.")
+        }
+        firmwareUpdater = FirmwareUpdater(serviceScope, gattClient, cacheDir)
+        serviceScope.launch {
+            FirmwareUpdateStore.state.sample(500).collect { state ->
+                if (state.busy) {
+                    acquireWakeLock()
+                    updateNotification("Ne pas utiliser le VAE · ${state.detail}")
+                } else updateNotification(statusMessage())
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -153,6 +175,7 @@ class RideService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_ASSOCIATE) {
+            if (FirmwareUpdateStore.state.value.busy) return START_NOT_STICKY
             associationPending = true
             // The single-connection peripheral must advertise for Android's
             // association picker; release our direct GATT connection first.
@@ -174,12 +197,20 @@ class RideService : Service() {
         }
         updateNotification(statusMessage())
         when (intent?.action) {
+            ACTION_INSTALL_FIRMWARE -> {
+                val bike = intent.getStringExtra(EXTRA_BIKE_ID)
+                if (bike != null && bike.equals(connectedBike, ignoreCase = true) &&
+                    bike == com.alban.ebike.data.BikeProfiles.activeId.value) firmwareUpdater.install()
+            }
+            ACTION_CHECK_FIRMWARE -> firmwareUpdater.check(force = true)
             ACTION_SET_CIRCUMFERENCE -> {
+                if (FirmwareUpdateStore.state.value.busy) return START_NOT_STICKY
                 intent.getIntExtra(EXTRA_CIRCUMFERENCE_MM, -1)
                     .takeIf { it in 1000..4000 }
                     ?.let { gattClient.setWheelCircumference(it, expectedAddress = intent.getStringExtra(EXTRA_BIKE_ID)) }
             }
             ACTION_TOGGLE_MODE -> {
+                if (FirmwareUpdateStore.state.value.busy) return START_NOT_STICKY
                 val state = RideStateStore.state.value
                 val bike = intent.getStringExtra(EXTRA_BIKE_ID)
                 if (state.bluetoothReady && state.modeSupported && bike == connectedBike) {
@@ -211,7 +242,7 @@ class RideService : Service() {
         connectedBike = null
         notificationStarted = false
         BikeArrivalNotification.dismiss(this)
-        gattClient.stop()
+        gattClient.close()
         locationEngine.stop()
         RideStateStore.setBluetoothReady(false)
         RideStateStore.setBluetoothStatus("Service arrêté")
@@ -269,6 +300,7 @@ class RideService : Service() {
             ),
         )
         .setOngoing(true)
+        .setOnlyAlertOnce(true)
         .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Arrêter", PendingIntent.getService(
             this, 1, Intent(this, RideService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -305,6 +337,18 @@ class RideService : Service() {
     }
 
     companion object {
+        private const val ACTION_INSTALL_FIRMWARE = "com.alban.ebike.INSTALL_FIRMWARE"
+        private const val ACTION_CHECK_FIRMWARE = "com.alban.ebike.CHECK_FIRMWARE"
+
+        fun installFirmware(context: Context, bikeId: String = com.alban.ebike.data.BikeProfiles.activeId.value) {
+            ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)
+                .setAction(ACTION_INSTALL_FIRMWARE).putExtra(EXTRA_BIKE_ID, bikeId).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
+        }
+
+        fun checkFirmware(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)
+                .setAction(ACTION_CHECK_FIRMWARE).putExtra(EXTRA_VISIBLE, context is android.app.Activity))
+        }
         private const val ACTION_TOGGLE_MODE = "com.alban.ebike.TOGGLE_MODE"
         fun toggleMode(context: Context, bikeId: String = com.alban.ebike.data.BikeProfiles.activeId.value) {
             ContextCompat.startForegroundService(context, Intent(context, RideService::class.java)

@@ -40,6 +40,7 @@ void WheelCapture::begin() {
 void IRAM_ATTR WheelCapture::gpio_isr(void* context) {
     auto* self = static_cast<WheelCapture*>(context);
     const int64_t timestamp_us = esp_timer_get_time();
+    self->telemetry_.record_wheel_edge_from_isr(timestamp_us);
     const bool interval_valid = self->last_isr_edge_us_ >= 0;
     const int64_t raw_interval = interval_valid ? timestamp_us - self->last_isr_edge_us_ : 0;
     const uint32_t interval_us = raw_interval > UINT32_MAX ? UINT32_MAX :
@@ -61,6 +62,7 @@ void WheelCapture::task_entry(void* context) {
 void WheelCapture::task() {
     bool previous_speed_mode = config_.speed_enabled();
     while (true) {
+        telemetry_.wheel_task_heartbeat(esp_timer_get_time());
         const bool speed_mode = config_.speed_enabled();
         if (speed_mode != previous_speed_mode) {
             previous_speed_mode = speed_mode;

@@ -81,3 +81,58 @@ above 99 km/h and positive accelerations above 15 km/h per second are rejected;
 decelerations are not limited by the acceleration check. A newly acquired period
 has no previous speed for the acceleration check. Timing must be verified
 on a bench after flashing; the UI acknowledgement reports the requested firmware mode.
+
+## Firmware version (optional read)
+
+Characteristic `a6f50004-9b8a-4d9f-a0da-9e9d873d1101` is read-only. Its payload is the firmware application version from `esp_app_get_description()->version`, encoded as UTF-8 without a trailing NUL (for example `1.0.1`). Android reads it once per connection, after notification subscriptions and before configuration writes. Older firmware without this characteristic remains compatible and displays an unavailable version.
+
+## OTA extension v1 (hardware V1.0, firmware 1.0.2+)
+
+Existing telemetry/configuration layouts and UUIDs remain unchanged. Legacy
+firmware does not expose the OTA characteristics and requires USB provisioning.
+Android requests MTU 247, requires at least MTU 51 for OTA, serializes GATT
+requests and waits for every write response. No write-without-response is used.
+
+Read OTA control (`48` bytes, little-endian):
+
+```text
+u8  ota_protocol           // 1
+u8  state                  // 0 idle, 1 receiving, 2 verified, 3 rebooting, 4 error
+u8  error                  // 0 none, 1 motion, 2 format/order/size, 3 flash/image,
+                           // 4 SHA-256 mismatch, 5 inactivity timeout, 6 cancelled/disconnected
+u8  flags                  // bit 0 supported, bit 1 stationary >=10s, bit 2 boot confirmed
+u32 received
+u32 image_size
+u32 installed_version_code
+u8  running_slot           // 0 or 1
+u8  next_slot              // 1 or 0
+u16 hardware_revision      // 0x0100 = hardware V1.0
+u32 next_slot_capacity
+char installed_version[24] // NUL-padded UTF-8
+```
+
+Write OTA control:
+
+- `01 + u32 size + u8 sha256[32] + u32 version_code` (`41` bytes): begin;
+  requires confirmed running firmware, increasing code, size within the inactive
+  slot and ten seconds without raw wheel edges. Sets Standard mode.
+- `02` (`1` byte): finish; requires exact size and SHA-256; validates ESP-IDF
+  image/chip/project. Does not yet change the boot partition.
+- `04` (`1` byte): activate a verified image; rechecks movement, selects the
+  new boot partition and restarts after 1.5 seconds. Movement before restart
+  restores the running partition and cancels activation.
+- `03` (`1` byte): abort, close the OTA handle and discard the session.
+
+Write OTA data: `u32 offset + u8 bytes[1..240]`; the total ATT value must fit
+`MTU - 3`. The application uses payloads of `min(MTU - 7, 240)` bytes. Offsets
+must exactly equal `received`, with no gaps, overlaps or data beyond declared
+size. An ATT write response acknowledges bytes written, not boot success.
+Status is also read every approximately 16 KiB and after each control stage.
+
+The server cancels an active session on any raw wheel edge, on disconnect
+before activation or after 30 seconds without data. New attempts start at offset
+zero. Configuration writes are rejected while OTA is receiving/verified/rebooting.
+After restart, read status again and verify version/code, opposite slot and boot
+confirmation. See [OTA.md](OTA.md) for boot validation, rollback and publication.
+
+OTA UUIDs: control `a6f50005-9b8a-4d9f-a0da-9e9d873d1101`; data `a6f50006-9b8a-4d9f-a0da-9e9d873d1101`. Diagnostics/version UUIDs 03/04 are preserved.

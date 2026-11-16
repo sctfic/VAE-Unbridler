@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <atomic>
 
 #include "config_store.hpp"
 #include "telemetry_store.hpp"
+#include "ota_service.hpp"
 
 struct ble_gatt_access_ctxt;
 struct ble_gap_event;
@@ -34,6 +36,11 @@ class BleService {
     static BleService* instance_;
     ConfigStore& config_;
     TelemetryStore& telemetry_;
+    OtaService ota_;
+    std::atomic<bool> ble_ready_{false};
+    uint16_t ota_control_handle_ = 0;
+    uint16_t ota_data_handle_ = 0;
+    uint16_t firmware_handle_ = 0;
     uint16_t telemetry_handle_ = 0;
     uint16_t config_handle_ = 0;
     uint16_t sensor_diagnostics_handle_ = 0;

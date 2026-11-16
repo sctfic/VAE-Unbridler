@@ -29,6 +29,7 @@ import com.alban.ebike.model.BleProtocol
 import com.alban.ebike.service.RideService
 import com.alban.ebike.companion.BikeArrivalNotification
 import com.alban.ebike.ui.DashboardScreen
+import com.alban.ebike.firmware.FirmwareUpdateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,6 +68,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val rideState by RideStateStore.state.collectAsState()
+            val firmware by FirmwareUpdateStore.state.collectAsState()
             val profileRevision by com.alban.ebike.data.BikeProfiles.revision.collectAsState()
             val profileId by com.alban.ebike.data.BikeProfiles.activeId.collectAsState()
             val circumference = androidx.compose.runtime.remember(profileRevision, profileId) { settings.currentCircumference(profileId) }
@@ -74,6 +76,9 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.key(profileId) {
                 DashboardScreen(
                     state = rideState,
+                    firmware = firmware,
+                    onInstallFirmware = { RideService.installFirmware(this, profileId) },
+                    onCheckFirmware = { RideService.checkFirmware(this) },
                     circumferenceMm = circumference,
                     onAssociate = ::associateBike,
                     onResetRide = { RideStateStore.resetRide() },

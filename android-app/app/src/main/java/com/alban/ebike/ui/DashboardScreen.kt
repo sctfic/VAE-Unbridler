@@ -5,11 +5,13 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +29,8 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alban.ebike.data.DistanceAltitudeProfile
 import com.alban.ebike.model.RideUiState
+import com.alban.ebike.firmware.FirmwareUpdateUi
 import com.alban.ebike.model.RideReadout
 import com.alban.ebike.model.formatRideDuration
 import com.alban.ebike.scene.RouteMetric
@@ -51,7 +56,12 @@ private val White = Color(0xFFE9F7FF)
 
 @Composable
 fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () -> Unit,
-    onToggleMode: () -> Unit, onSaveCircumference: (Int) -> Unit, onResetRide: () -> Unit = {}) {
+    onToggleMode: () -> Unit, onSaveCircumference: (Int) -> Unit, onResetRide: () -> Unit = {},
+    firmware: FirmwareUpdateUi = FirmwareUpdateUi(), onInstallFirmware: () -> Unit = {}, onCheckFirmware: () -> Unit = {}) {
+    var firmwareOpen by rememberSaveable { mutableStateOf(false) }
+    val openEsp32: () -> Unit = {
+        if (state.bluetoothReady || firmware.available || firmware.busy) firmwareOpen = true else onAssociate()
+    }
     val Muted = lerp(Color(0xFF89A9BC), Color.White, LocalSunlight.current)
     var selectedPoint by remember { mutableStateOf<com.alban.ebike.model.TrackPoint?>(null) }
     var profileDragging by remember { mutableStateOf(false) }
@@ -110,10 +120,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
            Column(Modifier.weight(.4f).fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().height(60.dp).windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top).union(WindowInsets.displayCutout.only(WindowInsetsSides.Start))).padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = onAssociate, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("●  ${com.alban.ebike.data.BikeProfiles.name()}", color = if (state.bluetoothReady) Cyan else Color.Gray,
-                        fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
-                }
+                Esp32UpdateButton(state.bluetoothReady, firmware, openEsp32, com.alban.ebike.data.BikeProfiles.name())
                 SettingsButton(circumferenceMm, state.bluetoothReady, state.resting && state.calibration?.significant(circumferenceMm) == true) { settingsOpen = true }
             }
             Column(Modifier.fillMaxWidth().weight(1f)
@@ -152,10 +159,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
          } else {
             Row(Modifier.fillMaxWidth().height(60.dp).windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top).union(WindowInsets.displayCutout.only(WindowInsetsSides.Start))).padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = onAssociate, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("●  ${com.alban.ebike.data.BikeProfiles.name()}", color = if (state.bluetoothReady) Cyan else Color.Gray,
-                        fontSize = 11.sp, fontWeight = if (state.bluetoothReady) FontWeight.Bold else FontWeight.Normal)
-                }
+                Esp32UpdateButton(state.bluetoothReady, firmware, openEsp32, com.alban.ebike.data.BikeProfiles.name())
                 Text("E-BikeCockpit", color = Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
                 SettingsButton(circumferenceMm, state.bluetoothReady, state.resting && state.calibration?.significant(circumferenceMm) == true) { settingsOpen = true }
             }
@@ -193,7 +197,10 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             }
          }
         }
-        if (settingsOpen) WheelSettingsDialog(circumferenceMm, state, { settingsOpen = false }, onSaveCircumference)
+        if (firmwareOpen || firmware.busy) FirmwareUpdateDialog(firmware, state,
+            onDismiss = { firmwareOpen = false }, onInstall = onInstallFirmware, onCheck = onCheckFirmware,
+            onAssociate = { firmwareOpen = false; onAssociate() })
+        if (settingsOpen && !firmware.busy) WheelSettingsDialog(circumferenceMm, state, { settingsOpen = false }, onSaveCircumference)
         if (resetOpen) AlertDialog(onDismissRequest = { resetOpen = false },
             title = { Text("Réinitialiser le trajet ?") },
             text = { Text("Le tracé, la distance et le profil d’altitude seront remis à zéro. Les anciens fichiers de trajet seront conservés.") },
@@ -563,10 +570,20 @@ private fun Modifier.metricHalo(active: Boolean): Modifier = if (!active) this e
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Roue, chronomètre et pente") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (profileId != com.alban.ebike.data.BikeProfiles.OFFLINE) {
-                OutlinedTextField(bikeName, { bikeName = it.take(40) }, singleLine = true, label = { Text("Nom du VAE") })
-                Text("Profil : $profileId", fontSize = 10.sp)
-                Text("VAE mémorisés : ${com.alban.ebike.data.BikeProfiles.knownNames().joinToString()}", fontSize = 11.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(profileId, fontSize = 10.sp)
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = bikeName,
+                        onValueChange = { bikeName = it.take(40) },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp),
+                        modifier = Modifier.weight(1f).border(1.dp, Muted, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 8.dp)
+                            .semantics { contentDescription = "Nom du VAE" },
+                    )
+                    Text(state.firmwareVersion ?: "—", fontSize = 12.sp)
+                }
             }
+            Text("Application : ${com.alban.ebike.BuildConfig.VERSION_NAME}", fontSize = 12.sp)
             state.calibration?.takeIf { it.significant(currentCircumferenceMm) }?.let { proposal ->
                 Text("Calibration de roue", color = Cyan, fontWeight = FontWeight.Bold)
                 Text("${currentCircumferenceMm} mm → ${proposal.circumferenceMm} mm · %+.2f %%".format(proposal.differencePercent(currentCircumferenceMm)))
@@ -579,10 +596,15 @@ private fun Modifier.metricHalo(active: Boolean): Modifier = if (!active) this e
                 else if (!state.resting) Text("Application possible pendant une pause.", fontSize = 12.sp)
                 HorizontalDivider()
             }
-            Text(if (directMode) "Longueur parcourue par tour (mm)" else "Diamètre de roue (mm)")
-            OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("mm") })
-            TextButton(onClick = { directMode = !directMode }) { Text(if (directMode) "Saisir le diamètre" else "Saisir la longueur par tour") }
-            Text("Circonférence : ${calculated ?: "—"} mm")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(value, { value = it }, singleLine = true,
+                    label = { Text(if (directMode) "Périmètre (mm)" else "Diamètre (mm)") },
+                    modifier = Modifier.weight(1f))
+                TextButton(onClick = { directMode = !directMode }) {
+                    Text(if (directMode) "Saisir le diamètre" else "Saisir le périmètre")
+                }
+            }
+            if (!directMode) Text("Circonférence : ${calculated ?: "—"} mm")
             Text("Chronomètre : vitesse > ${threshold.toInt()} km/h")
             Slider(value = threshold, onValueChange = { threshold = it.roundToInt().toFloat() }, valueRange = 0f..20f, steps = 19)
             Text("Pente : ${gradePoints.toInt()} derniers points GPS")

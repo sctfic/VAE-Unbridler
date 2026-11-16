@@ -101,9 +101,13 @@ object RideStateStore {
         _state.update { it.copy(gpsSpeedKmh = 0f, gpsSpeedValid = false) }
     }
 
+    fun setFirmwareVersion(version: String?) {
+        GpsDebugLog.record("FIRMWARE version=${version ?: "unavailable"}")
+        _state.update { it.copy(firmwareVersion = version) }
+    }
     fun setBluetoothReady(ready: Boolean) {
         if (!ready) calibration.disconnect()
-        _state.update { it.copy(bluetoothReady = ready,
+        _state.update { it.copy(bluetoothReady = ready, firmwareVersion = if (ready) it.firmwareVersion else null,
             modeSupported = ready && it.modeSupported,
             speedMode = ready && it.speedMode,
             wheelSpeedKmh = if (ready) it.wheelSpeedKmh else 0f,

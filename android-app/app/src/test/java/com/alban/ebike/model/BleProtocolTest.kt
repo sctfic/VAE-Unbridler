@@ -6,6 +6,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BleProtocolTest {
+    @Test fun firmwareVersionComesFromAValidatedDevicePayload() {
+        assertEquals("1.0.1", BleProtocol.decodeFirmwareVersion("1.0.1".toByteArray()))
+        assertNull(BleProtocol.decodeFirmwareVersion(byteArrayOf()))
+        assertNull(BleProtocol.decodeFirmwareVersion("unknown\u0000payload".toByteArray()))
+        assertNull(BleProtocol.decodeFirmwareVersion("x".repeat(33).toByteArray()))
+    }
     @Test fun sensorDiagnosticsKeepsRawBounceIntervalsAndUnsignedCounters() {
         val packet = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN).apply {
             put(1.toByte()); put(1.toByte()); putShort(65535.toShort())

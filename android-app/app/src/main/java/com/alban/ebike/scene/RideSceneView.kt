@@ -318,9 +318,9 @@ private class SceneRenderer(private val density: Float) : GLSurfaceView.Renderer
         draw(2, GL_LINES, floatArrayOf(.18f, .71f, .76f, .65f))
         draw(6, GL_TRIANGLES, floatArrayOf(.72f, .80f, .84f, .8f), 2f)
         // Water is draped over the terrain and occluded by foreground relief.
-        draw(7, GL_TRIANGLES, floatArrayOf(.12f, .72f, 1f, 1f), 4f, 1f)
+        draw(7, GL_TRIANGLES, floatArrayOf(.12f, .72f, 1f, 1f), 1.2f, 1f)
         glEnable(GL_DEPTH_TEST)
-        draw(8, GL_TRIANGLES, floatArrayOf(.78f, .66f, .38f, .85f), 1.6f)
+        draw(8, GL_TRIANGLES, floatArrayOf(.78f, .66f, .38f, .85f), 1.3f)
         draw(9, GL_TRIANGLES, floatArrayOf(.62f, .72f, .86f, .85f), 1.5f)
         draw(10, GL_TRIANGLES, floatArrayOf(.95f, .65f, .34f, .9f), 1.5f)
         val rgb = if (scene.speedMode) floatArrayOf(1f, .23f, .30f) else floatArrayOf(.25f, .79f, 1f)

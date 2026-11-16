@@ -19,6 +19,9 @@ struct RuntimeConfig {
 };
 
 struct TelemetrySnapshot {
+    int64_t last_wheel_edge_us = 0;
+    int64_t wheel_task_heartbeat_us = 0;
+    uint32_t wheel_edges = 0;
     bool sensor_interval_valid = false;
     uint32_t sensor_interval_us = 0;
     uint32_t sensor_edges = 0;

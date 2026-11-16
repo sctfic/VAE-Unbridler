@@ -39,3 +39,9 @@ pull-up to ESP 3.3 V and an oscilloscope: idle high, pulses low for 2 ms,
 no pulse during initialization, return high on stop, in both Standard and Turbo.
 Confirm the controller-side electrical conditions separately before a stationary
 test on the bicycle. A multimeter alone cannot validate pulse timing/transients.
+
+## OTA V1.0
+
+Firmware 1.0.2 ajoute deux partitions OTA pour cette sortie GPIO6 à drain ouvert,
+sans changer le câblage ni le filtre de roue. Le projet `ebike_firmware_hw_v1` et
+le canal GitHub `esp32-hw-v1-vX.Y.Z` sont propres à ce matériel. Voir [OTA.md](../OTA.md).

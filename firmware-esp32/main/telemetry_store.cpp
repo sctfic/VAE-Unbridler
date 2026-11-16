@@ -2,6 +2,20 @@
 
 namespace ebike {
 
+void TelemetryStore::wheel_task_heartbeat(int64_t timestamp_us) {
+    portENTER_CRITICAL(&lock_);
+    state_.wheel_task_heartbeat_us = timestamp_us;
+    portEXIT_CRITICAL(&lock_);
+}
+
+void IRAM_ATTR TelemetryStore::record_wheel_edge_from_isr(int64_t timestamp_us) {
+    portENTER_CRITICAL_ISR(&lock_);
+    state_.last_wheel_edge_us = timestamp_us;
+    ++state_.wheel_edges;
+    portEXIT_CRITICAL_ISR(&lock_);
+}
+
+
 void TelemetryStore::update_wheel(uint32_t interval_us, uint16_t speed_centi_kmh,
                                   uint32_t revolutions, uint16_t circumference_mm) {
     portENTER_CRITICAL(&lock_);

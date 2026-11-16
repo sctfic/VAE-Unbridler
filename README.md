@@ -1,9 +1,9 @@
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.20** — auteur **Lopez Alban**.
+Version Android **0.4.23** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
-Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les changements 0.4.20](RELEASE_0.4.20.md).
+Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les changements 0.4.23](RELEASE_0.4.23.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
 cours d'eau, routes, chemins et bâtiments. Les choix sont mémorisés localement.
@@ -137,4 +137,14 @@ idf.py -p COM4 flash monitor
 
 Remplacer `COM4` par le port réellement attribué à la carte. Si l'envoi ne démarre pas : maintenir **BOOT**, brancher l'USB ou appuyer sur **RESET**, relâcher **BOOT**, puis relancer la dernière commande.
 
-Firmware déjà construit : `firmware-esp32/build/ebike_firmware.bin`.
+Firmware OTA V1.0 : `firmware-esp32/build/ota-v1/ebike_firmware_hw_v1.bin`.
+Compiler et préparer les fichiers OTA avec `./tools/build-firmware-ota.ps1` depuis ESP-IDF PowerShell.
+
+## OTA — application 0.4.23 et matériel V1.0
+
+Le nom personnalisé du VAE clignote lorsqu’un firmware V1.0 plus récent est
+disponible sur GitHub. Le toucher propose l’installation après dix secondes
+d’immobilité et affiche les six étapes de progression avec l’avertissement de
+ne pas utiliser le VAE. Les partitions `ota_0` et `ota_1` alternent à chaque mise
+à jour. Une première installation USB du firmware 1.0.2 et du nouveau bootloader
+est nécessaire. Voir [OTA.md](OTA.md) pour la mise en service et la publication.

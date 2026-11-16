@@ -35,6 +35,7 @@ data class TrackPoint(
 data class RidePause(val start: TrackPoint, val end: TrackPoint? = null)
 
 data class RideUiState(
+    val firmwareVersion: String? = null,
     val gpsSpeedTimeMs: Long = -1L,
     val wheelTelemetryTimeMs: Long = -1L,
     val wheelTelemetryCoherent: Boolean = true,
