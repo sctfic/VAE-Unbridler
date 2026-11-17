@@ -46,4 +46,20 @@ class FirmwareProtocolTest {
         assertThrows(IllegalArgumentException::class.java) { FirmwareProtocol.chunk(0, ByteArray(241), 241) }
         assertThrows(IllegalArgumentException::class.java) { FirmwareProtocol.chunk(-1, byteArrayOf(1), 1) }
     }
+    @Test fun decodesWakePreparationCapabilitiesWithoutChangingLegacyPackets() {
+        val b = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put(1); put(5); put(0); put(15)
+            putInt(0); putInt(0); putInt(4)
+            put(0); put(1); putShort(FirmwareProtocol.hardwareRevision.toShort()); putInt(0x1e0000)
+            put("1.0.5".toByteArray())
+        }.array()
+        val preparing = FirmwareProtocol.decode(b)!!
+        assertTrue(preparing.wakeSupported); assertFalse(preparing.wakeComplete)
+        assertTrue(preparing.stationary); assertTrue(preparing.supported)
+        b[3] = 31
+        assertTrue(FirmwareProtocol.decode(b)!!.wakeComplete)
+        b[1] = 0; b[3] = 7
+        assertFalse(FirmwareProtocol.decode(b)!!.wakeSupported)
+        assertEquals(5, FirmwareProtocol.PREPARE_WAKE.toInt())
+    }
 }

@@ -9,11 +9,12 @@ LED WS2812 intégrée sur **GPIO 21**, ordre des couleurs GRB. Luminosité volon
 | Bleu | Fixe | Bluetooth connecté, roue arrêtée. Indique la connexion BLE, pas la réception GPS du téléphone. |
 | Vert | Fixe sans Bluetooth ; alterné avec bleu si connecté | Roue en mouvement, transmission des impulsions au rythme mesuré (jusqu’au seuil configuré, 22,2 km/h par défaut). |
 | Orange | Fixe sans Bluetooth ; alterné avec bleu si connecté | Roue en mouvement, génération des intervalles de vitesse simulée au-dessus du seuil. |
+| Orange / violet | Alternance 0,5 s / 0,5 s | Mise à jour OTA en cours, depuis la préparation anti-veille jusqu’au redémarrage. Retour à l’état normal en cas d’annulation, d’échec ou de déconnexion. |
 | Rouge | 0,5 s allumé / 0,5 s éteint | Échec détecté d’initialisation NVS ou Bluetooth, de sélection de l’adresse BLE, de configuration ou de démarrage de l’annonce Bluetooth. |
 
 En mouvement avec Bluetooth connecté, l’alternance est **0,5 s bleu / 0,5 s vert ou orange**. Elle permet de lire simultanément la connexion et le mode des impulsions.
 
-Priorité : **erreur rouge > démarrage violet > état de connexion et mouvement**. Le rouge reste mémorisé jusqu’au redémarrage. Il ne signifie pas nécessairement que les impulsions sont arrêtées. L’arrêt de la roue suit le délai de détection du firmware, pas le dernier front instantanément.
+Priorité : **erreur rouge > mise à jour orange/violet > démarrage violet > état de connexion et mouvement**. Le rouge reste mémorisé jusqu’au redémarrage. Il ne signifie pas nécessairement que les impulsions sont arrêtées. L’arrêt de la roue suit le délai de détection du firmware, pas le dernier front instantanément.
 
 La LED est pilotée par le périphérique matériel RMT, depuis une tâche de faible priorité sur le cœur 0. La capture de roue et le générateur d’impulsions restent indépendants ; aucune transmission LED n’est effectuée dans leurs interruptions.
 

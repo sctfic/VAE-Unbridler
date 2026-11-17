@@ -9,5 +9,6 @@ void begin(TelemetryStore& telemetry);
 void ready();
 void connected(bool value);
 void fault();
+void updating(bool value);
 }
 }

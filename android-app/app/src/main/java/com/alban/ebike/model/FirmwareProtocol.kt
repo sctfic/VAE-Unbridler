@@ -8,6 +8,8 @@ data class FirmwareInfo(
     val state: Int, val error: Int, val flags: Int, val received: Int, val size: Int,
     val versionCode: Int, val slot: Int, val targetSlot: Int, val capacity: Int, val version: String, val hardwareRevision: Int = 0,
 ) {
+    val wakeSupported get() = flags and 8 != 0
+    val wakeComplete get() = flags and 16 != 0
     val stationary get() = flags and 2 != 0
     val bootConfirmed get() = flags and 4 != 0
     val supported get() = hardwareRevision == FirmwareProtocol.hardwareRevision && flags and 1 != 0 && slot in 0..1 && targetSlot in 0..1 && slot != targetSlot
@@ -20,6 +22,7 @@ object FirmwareProtocol {
     const val FINISH: Byte = 2
     const val ABORT: Byte = 3
     const val ACTIVATE: Byte = 4
+    const val PREPARE_WAKE: Byte = 5
 
     fun decode(bytes: ByteArray): FirmwareInfo? {
         if (bytes.size != 48 || bytes[0].toInt() != 1) return null
@@ -36,7 +39,7 @@ object FirmwareProtocol {
         val hardware = b.short.toInt() and 0xffff
         val capacity = b.int
         val version = ByteArray(24).also { b.get(it) }.takeWhile { it != 0.toByte() }.toByteArray().toString(Charsets.UTF_8)
-        if (state !in 0..4 || error !in 0..6 || code < 1 || capacity <= 0 || received < 0 || size < received) return null
+        if (state !in 0..5 || error !in 0..6 || code < 1 || capacity <= 0 || received < 0 || size < received) return null
         return FirmwareInfo(state, error, flags, received, size, code, slot, target, capacity, version, hardware)
     }
 

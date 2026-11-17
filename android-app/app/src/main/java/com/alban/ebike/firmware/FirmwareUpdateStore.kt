@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class UpdatePhase { IDLE, DOWNLOADING, PREPARING, TRANSFERRING, VERIFYING, RESTARTING, CONFIRMING, SUCCESS, ERROR }
+enum class UpdatePhase { IDLE, WAKING, DOWNLOADING, PREPARING, TRANSFERRING, VERIFYING, RESTARTING, CONFIRMING, SUCCESS, ERROR }
 
 data class FirmwareRelease(val version: String, val versionCode: Int, val size: Int, val sha256: String, val url: String)
 
@@ -17,7 +17,7 @@ data class FirmwareUpdateUi(
     val detail: String = "Connexion à l’ESP32 nécessaire pour connaître sa version.",
     val checking: Boolean = false,
 ) {
-    val busy get() = phase in UpdatePhase.DOWNLOADING..UpdatePhase.CONFIRMING
+    val busy get() = phase in UpdatePhase.WAKING..UpdatePhase.CONFIRMING
     val available get() = info?.let { it.supported && release != null && release.versionCode > it.versionCode } == true
     val canInstall get() = available && !busy && info?.stationary == true && info.bootConfirmed
 }

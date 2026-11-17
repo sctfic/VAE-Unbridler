@@ -46,6 +46,7 @@ data class RideUiState(
     val speedMode: Boolean = false,
     val modeSupported: Boolean = false,
     val bluetoothReady: Boolean = false,
+    val espDetected: Boolean = false,
     val bluetoothStatus: String = "Recherche ESP32",
     val gpsStatus: String = "GPS en attente",
     val gpsSpeedKmh: Float = 0f,

@@ -8,3 +8,6 @@ elle a déjà été augmentée dans les modifications du commit en préparation.
 Conserver l'applicationId pour les mises à jour Android et la clé de signature
 release existante. Ne jamais committer les clés privées, mots de passe,
 `signing.properties`, positions GPS personnelles ou journaux de trajet.
+
+Effectuer les mises à jour ESP32 via OTA par défaut. Ne flasher par USB que
+sur demande explicite de l’utilisateur.

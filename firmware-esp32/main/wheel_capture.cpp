@@ -40,6 +40,7 @@ void WheelCapture::begin() {
 void IRAM_ATTR WheelCapture::gpio_isr(void* context) {
     auto* self = static_cast<WheelCapture*>(context);
     const int64_t timestamp_us = esp_timer_get_time();
+    self->pulse_.cancel_ota_wake_from_isr();
     self->telemetry_.record_wheel_edge_from_isr(timestamp_us);
     const bool interval_valid = self->last_isr_edge_us_ >= 0;
     const int64_t raw_interval = interval_valid ? timestamp_us - self->last_isr_edge_us_ : 0;
@@ -64,6 +65,7 @@ void WheelCapture::task() {
     RuntimeConfig previous_config = config_.snapshot();
     uint32_t logged_emitted = 0;
     while (true) {
+        pulse_.service_ota_wake();
         telemetry_.wheel_task_heartbeat(esp_timer_get_time());
         const auto diagnostic = telemetry_.snapshot();
         if (diagnostic.emitted_pulses != logged_emitted) {

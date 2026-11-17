@@ -41,6 +41,7 @@ class BikeGattClient(
     private val onStatus: (String) -> Unit,
     private val onFirmwareVersion: (String?) -> Unit = {},
     private val onFirmwareInfo: (FirmwareInfo?) -> Unit = {},
+    private val onDetected: (Boolean) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
@@ -89,6 +90,7 @@ class BikeGattClient(
 
     @SuppressLint("MissingPermission")
     fun stop() {
+        onDetected(false)
         stopped = true
         handler.removeCallbacks(reconnect)
         handler.removeCallbacks(initializationTimeout)
@@ -198,6 +200,7 @@ class BikeGattClient(
             if (lockedDevice != null && result.device.address != lockedDevice) return
             scanner?.stopScan(this)
             scanning = false
+            onDetected(true)
             status("ESP32 détecté · connexion")
             gatt = result.device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE,
                 BluetoothDevice.PHY_LE_1M_MASK, handler)
@@ -237,6 +240,7 @@ class BikeGattClient(
                 onFirmwareInfo(null)
                 gatt.close()
                 if (this@BikeGattClient.gatt === gatt) this@BikeGattClient.gatt = null
+                onDetected(false)
                 onDisconnected()
                 status("ESP32 déconnecté ($status)")
                 scheduleReconnect()

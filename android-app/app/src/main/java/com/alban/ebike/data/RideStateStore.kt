@@ -119,6 +119,8 @@ object RideStateStore {
             simulatedOutput = ready && it.simulatedOutput) }
     }
 
+    fun setEspDetected(detected: Boolean) { _state.update { it.copy(espDetected = detected) } }
+
     fun setBluetoothStatus(message: String) {
         GpsDebugLog.record("BLE status=$message")
         _state.update { it.copy(bluetoothStatus = message) }

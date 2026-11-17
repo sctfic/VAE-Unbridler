@@ -74,4 +74,34 @@ int main() {
         assert(p.timestamp_us == i + 1 && p.wheel_timestamp_us == i + 1);
     }
     assert(!telemetry.pop_event(p, type));
+    // Three finite output-only pulses at exactly 2 km/h for each wheel size.
+    for (const uint16_t circumference : {uint16_t(1000), uint16_t(2361), uint16_t(4000)}) {
+        pulse.stop(); timer.now += 10000000;
+        const auto before = rising.size();
+        const auto wheel_before = telemetry.snapshot().wheel_edges;
+        assert(pulse.request_ota_wake(circumference));
+        assert(!pulse.request_ota_wake(circumference)); // no duplicate train
+        assert(!timer.armed); // request alone does not touch the hardware timer
+        pulse.service_ota_wake(); assert(timer.armed && !pulse.ota_wake_complete());
+        for (unsigned i = 0; i < 3; ++i) {
+            fire(); assert(closed && !pulse.ota_wake_complete());
+            fire(); assert(!closed);
+        }
+        assert(rising.size() == before + 3 && !timer.armed && pulse.ota_wake_complete());
+        const auto period = ebike::ota_wake_interval_us(circumference);
+        assert(rising[before+1] - rising[before] == period);
+        assert(rising[before+2] - rising[before+1] == period);
+        pulse.service_ota_wake(); pulse.service_ota_wake(); assert(!timer.armed);
+        assert(telemetry.snapshot().wheel_edges == wheel_before);
+        assert(telemetry.snapshot().motor_interval_us == 0);
+        pulse.cancel_ota_wake(); pulse.service_ota_wake();
+    }
+    // Disconnect/motion cancellation never truncates a 2 ms contact or emits a fourth pulse.
+    timer.now += 10000000; assert(pulse.request_ota_wake(2361)); pulse.service_ota_wake();
+    const auto before_cancel = rising.size(); fire();
+    pulse.cancel_ota_wake_from_isr(); pulse.service_ota_wake();
+    assert(closed); fire(); assert(!closed && !timer.armed && rising.size() == before_cancel + 1);
+    assert(!pulse.ota_wake_complete());
+    timer.now += 10000000; assert(pulse.request_ota_wake(2361));
+    pulse.cancel_ota_wake(); pulse.service_ota_wake(); assert(!timer.armed);
 }

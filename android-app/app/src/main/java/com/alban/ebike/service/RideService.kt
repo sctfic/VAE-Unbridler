@@ -133,6 +133,7 @@ class RideService : Service() {
                 }
             },
             onStatus = RideStateStore::setBluetoothStatus,
+            onDetected = RideStateStore::setEspDetected,
             onFirmwareVersion = RideStateStore::setFirmwareVersion,
             onFirmwareInfo = FirmwareUpdateStore::info,
             onDisconnected = {

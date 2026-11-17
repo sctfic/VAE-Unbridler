@@ -1,4 +1,5 @@
 #include "status_led.hpp"
+#include "status_led_policy.hpp"
 
 #include <atomic>
 #include "driver/rmt_tx.h"
@@ -10,7 +11,7 @@
 
 namespace ebike::status_led {
 namespace {
-std::atomic<bool> initialized{false}, bluetooth{false}, failed{false};
+std::atomic<bool> initialized{false}, bluetooth{false}, failed{false}, update_active{false};
 constexpr uint32_t kPurple = 0x100010, kBlue = 0x000018;
 constexpr uint32_t kYellow = 0x101000, kGreen = 0x001800;
 constexpr uint32_t kOrange = 0x180600, kRed = 0x180000;
@@ -47,6 +48,7 @@ void task(void* context) {
         const auto state = telemetry.snapshot();
         uint32_t color;
         if (failed.load()) color = first_half ? kRed : 0;
+        else if (update_active.load()) color = update_color(first_half);
         else if (!initialized.load() || elapsed < 1000000) color = kPurple;
         else if (bluetooth.load()) {
             color = !state.wheel_moving || first_half ? kBlue :
@@ -92,4 +94,5 @@ void begin(TelemetryStore& telemetry) {
 void ready() { initialized.store(true); }
 void connected(bool value) { bluetooth.store(value); }
 void fault() { failed.store(true); }
+void updating(bool value) { update_active.store(value); }
 }

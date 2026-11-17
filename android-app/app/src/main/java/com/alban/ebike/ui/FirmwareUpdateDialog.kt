@@ -32,14 +32,15 @@ fun Esp32UpdateButton(connected: Boolean, firmware: FirmwareUpdateUi, onClick: (
 
 @Composable
 fun FirmwareUpdateDialog(firmware: FirmwareUpdateUi, ride: RideUiState, onDismiss: () -> Unit,
-    onInstall: () -> Unit, onCheck: () -> Unit, onAssociate: () -> Unit) {
+    onInstall: () -> Unit, onAssociate: () -> Unit) {
     val stages = listOf(
-        UpdatePhase.DOWNLOADING to "1. Téléchargement GitHub et contrôle SHA-256",
-        UpdatePhase.PREPARING to "2. Immobilité et préparation de la partition inactive",
-        UpdatePhase.TRANSFERRING to "3. Transfert Bluetooth et écriture flash",
-        UpdatePhase.VERIFYING to "4. Vérification intégrale sur l’ESP32",
-        UpdatePhase.RESTARTING to "5. Bascule de partition et redémarrage",
-        UpdatePhase.CONFIRMING to "6. Reconnexion et confirmation du firmware",
+        UpdatePhase.WAKING to "1. Contrôles de démarrage",
+        UpdatePhase.DOWNLOADING to "2. Téléchargement GitHub et contrôle SHA-256",
+        UpdatePhase.PREPARING to "3. Préparation de l’installation",
+        UpdatePhase.TRANSFERRING to "4. Transfert Bluetooth et écriture flash",
+        UpdatePhase.VERIFYING to "5. Vérification intégrale sur l’ESP32",
+        UpdatePhase.RESTARTING to "6. Redémarrage de l’ESP32",
+        UpdatePhase.CONFIRMING to "7. Reconnexion et confirmation du firmware",
     )
     AlertDialog(
         onDismissRequest = { if (!firmware.busy) onDismiss() },
@@ -51,11 +52,10 @@ fun FirmwareUpdateDialog(firmware: FirmwareUpdateUi, ride: RideUiState, onDismis
                     color = Color(0xFFFFCB69), fontWeight = FontWeight.Bold)
                 Text("Version installée : ${firmware.info?.version ?: "inconnue (connexion ou installation USB nécessaire)"}\n" +
                     "Version GitHub : ${firmware.release?.version ?: "aucune détectée"}")
-                firmware.info?.let { Text("Partition active : ${it.slot + 1}/2 · prochaine installation : ${it.targetSlot + 1}/2") }
                 if (!firmware.busy) {
                     Text(when {
                         !ride.bluetoothReady -> "Connectez l’ESP32 pour installer une mise à jour."
-                        firmware.info?.supported != true -> "Ce firmware ne permet pas encore l’OTA. Une première installation par USB met en place les deux partitions."
+                        firmware.info?.supported != true -> "Ce firmware ne permet pas encore l’OTA. Une première installation par USB est nécessaire."
                         !firmware.info.bootConfirmed -> "Validation du démarrage ESP32 en cours…"
                         !firmware.info.stationary -> "Installation bloquée : immobilisez la roue pendant dix secondes."
                         ride.gpsSpeedValid && ride.gpsSpeedKmh >= 1f -> "Installation bloquée : mouvement détecté par le GPS."
@@ -76,11 +76,9 @@ fun FirmwareUpdateDialog(firmware: FirmwareUpdateUi, ride: RideUiState, onDismis
                     else if (firmware.busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 Text(firmware.detail, color = if (firmware.phase == UpdatePhase.ERROR) Color(0xFFFF7886) else Color.Unspecified)
-                if (!firmware.busy) {
-                    TextButton(onClick = onCheck, enabled = !firmware.checking) {
-                        Text(if (firmware.checking) "Vérification GitHub…" else "Rechercher une mise à jour")
-                    }
-                    TextButton(onClick = onAssociate) { Text("Association Android de l’ESP32") }
+                if (firmware.checking) Text("Recherche automatique de mise à jour…", fontSize = 12.sp)
+                if (!firmware.busy && !ride.espDetected && !ride.bluetoothReady) {
+                    TextButton(onClick = onAssociate) { Text("Associer un ESP32") }
                 }
             }
         },

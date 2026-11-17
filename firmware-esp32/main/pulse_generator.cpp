@@ -85,6 +85,66 @@ void PulseGenerator::initialize_on_current_core() {
     ESP_LOGI(kTag, "GPTimer started at 1 MHz on real-time core, GPIO %d", kMotorContactPin);
 }
 
+bool PulseGenerator::request_ota_wake(uint16_t circumference_mm) {
+    if (circumference_mm < 1000 || circumference_mm > 4000) return false;
+    portENTER_CRITICAL(&lock_);
+    const bool available = !continuous_ && !contact_closed_ && !wake_owned_;
+    if (available) {
+        wake_owned_ = true; wake_started_ = false; wake_cancelled_ = false;
+        wake_reported_ = false; wake_remaining_ = 3;
+        wake_interval_us_ = ota_wake_interval_us(circumference_mm);
+    }
+    portEXIT_CRITICAL(&lock_);
+    return available;
+}
+void PulseGenerator::cancel_ota_wake() {
+    portENTER_CRITICAL(&lock_);
+    if (wake_owned_) wake_cancelled_ = true;
+    portEXIT_CRITICAL(&lock_);
+}
+void IRAM_ATTR PulseGenerator::cancel_ota_wake_from_isr() {
+    portENTER_CRITICAL_ISR(&lock_);
+    if (wake_owned_) wake_cancelled_ = true;
+    portEXIT_CRITICAL_ISR(&lock_);
+}
+bool PulseGenerator::ota_wake_complete() const {
+    portENTER_CRITICAL(&lock_);
+    const bool complete = wake_owned_ && wake_started_ && !wake_cancelled_ &&
+        wake_remaining_ == 0 && !contact_closed_;
+    portEXIT_CRITICAL(&lock_);
+    return complete;
+}
+void PulseGenerator::service_ota_wake() {
+    bool report = false, cancelled = false;
+    uint32_t interval = 0;
+    portENTER_CRITICAL(&lock_);
+    if (wake_owned_ && wake_cancelled_) {
+        wake_owned_ = false; wake_remaining_ = 0;
+        continuous_ = false; expires_us_ = 0; simulated_interval_us_ = 0;
+        if (!contact_closed_) { armed_ = false; disarm_from_task(); }
+        report = cancelled = true;
+    } else if (wake_owned_ && !wake_started_) {
+        wake_started_ = true; continuous_ = true;
+        interval = wake_interval_us_;
+        simulated_interval_us_ = interval;
+        simulated_speed_centi_kmh_ = 200;
+        // Finite train, with an independent upper deadline if core 1 stalls.
+        const auto now = now_us();
+        expires_us_ = now + uint64_t(interval) * 3 + kPulseWidthUs;
+        next_start_us_ = next_pulse_start(last_start_us_, now, interval);
+        armed_ = true; arm_from_task(next_start_us_);
+        report = true;
+    } else if (wake_owned_ && wake_remaining_ == 0 && !contact_closed_ && !wake_reported_) {
+        wake_reported_ = true; report = true;
+    }
+    portEXIT_CRITICAL(&lock_);
+    if (report) {
+        telemetry_.update_motor(interval, interval ? 200 : 0, false);
+        ESP_LOGI(kTag, "OTA wake %s interval=%lu us", cancelled ? "cancelled" : interval ? "started" : "complete",
+            (unsigned long)interval);
+    }
+}
+
 void PulseGenerator::emit_passthrough(uint32_t interval_us, uint16_t speed_centi_kmh) {
     // Kept for source compatibility; every contact now uses the same scheduler.
     if (interval_us) set_output_interval(interval_us, speed_centi_kmh, false);
@@ -101,6 +161,8 @@ void PulseGenerator::set_output_interval(uint32_t interval_us, uint16_t speed_ce
                                          bool simulated) {
     if (interval_us <= kPulseWidthUs + 100) return;
     portENTER_CRITICAL(&lock_);
+    // Real wheel acquisition takes ownership again after any OTA cancellation.
+    wake_owned_ = false; wake_remaining_ = 0;
     const bool changed = !continuous_ || simulated_interval_us_ != interval_us;
     continuous_ = true;
     simulated_interval_us_ = interval_us;
@@ -117,6 +179,7 @@ void PulseGenerator::set_output_interval(uint32_t interval_us, uint16_t speed_ce
 
 void PulseGenerator::stop() {
     portENTER_CRITICAL(&lock_);
+    wake_owned_ = false; wake_remaining_ = 0; wake_cancelled_ = true;
     continuous_ = false;
     simulated_interval_us_ = 0;
     simulated_speed_centi_kmh_ = 0;
@@ -143,7 +206,8 @@ bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
     }
 
     if (!self->contact_closed_) {
-        if (!self->continuous_ || at_us > self->expires_us_) {
+        if (!self->continuous_ || at_us > self->expires_us_ ||
+            (self->wake_owned_ && (self->wake_cancelled_ || self->wake_remaining_ == 0))) {
             self->armed_ = false;
             gptimer_set_alarm_action(timer, nullptr);
             portEXIT_CRITICAL_ISR(&self->lock_);
@@ -152,6 +216,7 @@ bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
         self->contact_closed_ = true;
         self->last_start_us_ = at_us;
         set_contact_closed(true);
+        if (self->wake_owned_) --self->wake_remaining_;
 
         static gptimer_alarm_config_t close_alarm;
         close_alarm = make_alarm(at_us + kPulseWidthUs);
@@ -163,7 +228,8 @@ bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
 
     self->contact_closed_ = false;
     set_contact_closed(false);
-    if (self->continuous_ && at_us < self->expires_us_ && self->simulated_interval_us_ > kPulseWidthUs) {
+    if (self->continuous_ && at_us < self->expires_us_ && self->simulated_interval_us_ > kPulseWidthUs &&
+        (!self->wake_owned_ || (!self->wake_cancelled_ && self->wake_remaining_ > 0))) {
         self->next_start_us_ = self->last_start_us_ + self->simulated_interval_us_;
         if (self->next_start_us_ <= at_us + kEarliestTaskAlarmUs) {
             self->next_start_us_ = at_us + kEarliestTaskAlarmUs;
@@ -173,6 +239,7 @@ bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
         gptimer_set_alarm_action(timer, &next_alarm);
     } else {
         self->armed_ = false;
+        self->continuous_ = false;
         gptimer_set_alarm_action(timer, nullptr);
     }
     portEXIT_CRITICAL_ISR(&self->lock_);

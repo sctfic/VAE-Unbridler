@@ -4,6 +4,7 @@
 #include <cstdint>
 #include "config_store.hpp"
 #include "telemetry_store.hpp"
+#include "ota_wake_output.hpp"
 #include "esp_ota_ops.h"
 #include "freertos/semphr.h"
 #include "mbedtls/sha256.h"
@@ -13,9 +14,9 @@ namespace ebike {
 #pragma pack(push, 1)
 struct OtaStatus {
     uint8_t protocol = 1;
-    uint8_t state = 0;  // 0 idle, 1 receiving, 2 verified, 3 rebooting, 4 error
+    uint8_t state = 0;  // 0 idle, 1 receiving, 2 verified, 3 rebooting, 4 error, 5 wake/preparing
     uint8_t error = 0;  // 1 motion, 2 format, 3 flash, 4 hash, 5 timeout, 6 cancelled
-    uint8_t flags = 0;  // bit 0 OTA supported, bit 1 stationary, bit 2 boot confirmed
+    uint8_t flags = 0;  // bit 0 OTA supported, bit 1 stationary, bit 2 boot confirmed, bit 3 wake supported, bit 4 wake complete
     uint32_t received = 0;
     uint32_t size = 0;
     uint32_t version_code = 0;
@@ -30,7 +31,7 @@ static_assert(sizeof(OtaStatus) == 48);
 
 class OtaService {
   public:
-    OtaService(ConfigStore& config, TelemetryStore& telemetry);
+    OtaService(ConfigStore& config, TelemetryStore& telemetry, OtaWakeOutput& wake);
     void begin();
     OtaStatus status();
     bool control(const uint8_t* data, size_t size);
@@ -42,7 +43,9 @@ class OtaService {
   private:
     bool stationary() const;
     bool safe_session() const;
+    bool active() const;
     void fail(uint8_t error);
+    OtaWakeOutput& wake_;
     ConfigStore& config_;
     TelemetryStore& telemetry_;
     SemaphoreHandle_t mutex_ = nullptr;

@@ -14,7 +14,7 @@ namespace ebike {
 
 class BleService {
   public:
-    BleService(ConfigStore& config, TelemetryStore& telemetry);
+    BleService(ConfigStore& config, TelemetryStore& telemetry, OtaWakeOutput& wake);
     void begin();
 
   private:

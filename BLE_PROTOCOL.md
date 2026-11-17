@@ -1,3 +1,7 @@
+> Firmware 1.0.5 / Android 0.4.26 : l’extension de préparation OTA,
+> les flags anti-veille et la commande `05` sont décrits dans
+> [les notes 1.0.5](RELEASE_ESP32_1.0.5.md).
+
 # Protocole BLE : événements v2 (firmware 1.0.3 / Android 0.4.24)
 
 Le protocole courant est décrit dans [BLE_EVENTS_V2.md](BLE_EVENTS_V2.md).

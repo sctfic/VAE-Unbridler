@@ -3,6 +3,7 @@
 #include <cstring>
 #include "firmware_version.hpp"
 #include "ota_policy.hpp"
+#include "status_led.hpp"
 #include "esp_app_desc.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -23,7 +24,8 @@ struct Guard {
 };
 }  // namespace
 
-OtaService::OtaService(ConfigStore& config, TelemetryStore& telemetry) : config_(config), telemetry_(telemetry) {}
+OtaService::OtaService(ConfigStore& config, TelemetryStore& telemetry, OtaWakeOutput& wake)
+    : wake_(wake), config_(config), telemetry_(telemetry) {}
 
 void OtaService::begin() {
     mutex_ = xSemaphoreCreateMutex();
@@ -53,16 +55,21 @@ OtaStatus OtaService::status() {
     esp_ota_img_states_t image_state = ESP_OTA_IMG_UNDEFINED;
     const esp_err_t result = esp_ota_get_state_partition(esp_ota_get_running_partition(), &image_state);
     status_.flags = (target_ ? 1 : 0) | (stationary() ? 2 : 0) |
-                    ((result == ESP_OK && image_state == ESP_OTA_IMG_VALID) ? 4 : 0);
+                    ((result == ESP_OK && image_state == ESP_OTA_IMG_VALID) ? 4 : 0) | 8 |
+                    ((status_.state == 5 && wake_.ota_wake_complete()) ? 16 : 0);
     return status_;
 }
 
+bool OtaService::active() const { return (status_.state >= 1 && status_.state <= 3) || status_.state == 5; }
+
 bool OtaService::busy() {
     Guard guard(mutex_);
-    return status_.state >= 1 && status_.state <= 3;
+    return active();
 }
 
 void OtaService::fail(uint8_t error) {
+    wake_.cancel_ota_wake();
+    status_led::updating(false);
     if (handle_) { esp_ota_abort(handle_); handle_ = 0; }
     if (status_.state == 3) {
         // Activation was selected but motion was detected before restart.
@@ -80,11 +87,32 @@ bool OtaService::control(const uint8_t* data, size_t length) {
     Guard guard(mutex_);
     if (!length) return false;
     if (data[0] == 3 && length == 1) { fail(6); return true; }
-    if (data[0] == 1 && length == 41 && (status_.state == 0 || status_.state == 4)) {
+    if (data[0] == 5 && length == 1) {
+        if (status_.state == 5) {
+            if (!safe_session()) { fail(1); return false; }
+            last_activity_us_ = esp_timer_get_time();
+            return true; // never restart/repeat a train on duplicate PREPARE
+        }
+        if (active()) return false;
+        esp_ota_img_states_t boot;
+        if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &boot) != ESP_OK ||
+            boot != ESP_OTA_IMG_VALID) { fail(3); return false; }
+        start_edges_ = telemetry_.snapshot().wheel_edges;
+        if (!safe_session()) { fail(1); return false; }
+        config_.set_speed_enabled(false);
+        if (!wake_.request_ota_wake(config_.snapshot().circumference_mm)) { fail(1); return false; }
+        status_.state = 5; status_.error = 0; status_.size = status_.received = 0;
+        last_activity_us_ = esp_timer_get_time();
+        status_led::updating(true);
+        return true;
+    }
+    if (data[0] == 1 && length == 41 && (status_.state == 0 || status_.state == 4 || status_.state == 5)) {
+        const bool prepared = status_.state == 5;
+        if (prepared && (!safe_session() || !wake_.ota_wake_complete())) { fail(1); return false; }
         esp_ota_img_states_t state;
         if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) != ESP_OK ||
             state != ESP_OTA_IMG_VALID) { fail(3); return false; }
-        start_edges_ = telemetry_.snapshot().wheel_edges;
+        if (!prepared) start_edges_ = telemetry_.snapshot().wheel_edges;
         if (!safe_session()) { fail(1); return false; }
         const uint32_t size = u32(data + 1);
         if (!target_ || !size || size > target_->size || u32(data + 37) <= kFirmwareVersionCode) {
@@ -100,11 +128,12 @@ bool OtaService::control(const uint8_t* data, size_t length) {
             fail(3); return false;
         }
         status_.state = 1;
+        status_led::updating(true);
         last_activity_us_ = esp_timer_get_time();
         if (!safe_session()) { fail(1); return false; }
         return true;
     }
-    if (!safe_session() && status_.state >= 1 && status_.state <= 3) { fail(1); return false; }
+    if (!safe_session() && active()) { fail(1); return false; }
     if (data[0] == 2 && length == 1 && status_.state == 1) {
         uint8_t actual[32]{};
         if (status_.received != status_.size) { fail(2); return false; }
@@ -150,7 +179,7 @@ bool OtaService::write(const uint8_t* data, size_t length) {
 
 void OtaService::disconnected() {
     Guard guard(mutex_);
-    if (status_.state == 1 || status_.state == 2) fail(6);
+    if (status_.state == 1 || status_.state == 2 || status_.state == 5) fail(6);
 }
 
 void OtaService::tick(bool ble_ready) {
@@ -173,7 +202,7 @@ void OtaService::tick(bool ble_ready) {
             }
         }
     }
-    if (status_.state < 1 || status_.state > 3) return;
+    if (!active()) return;
     if (!safe_session()) { fail(1); return; }
     if (status_.state == 3 && now >= reboot_at_us_) { esp_restart(); }
     if (status_.state != 3 && now - last_activity_us_ > 30'000'000) fail(5);

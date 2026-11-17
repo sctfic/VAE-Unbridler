@@ -24,6 +24,7 @@ class FirmwareUpdateUiTest {
         val ui = FirmwareUpdateUi(info, release)
         assertFalse(ui.copy(info = info.copy(flags = 5)).canInstall)
         assertFalse(ui.copy(info = info.copy(flags = 3)).canInstall)
+        assertFalse(ui.copy(phase = UpdatePhase.WAKING).canInstall)
         assertFalse(ui.copy(phase = UpdatePhase.TRANSFERRING).canInstall)
         assertTrue(ui.copy(phase = UpdatePhase.ERROR).canInstall)
     }

@@ -46,8 +46,8 @@ ble_uuid128_t kOtaDataUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e
 
 BleService* BleService::instance_ = nullptr;
 
-BleService::BleService(ConfigStore& config, TelemetryStore& telemetry)
-    : config_(config), telemetry_(telemetry), ota_(config, telemetry) {}
+BleService::BleService(ConfigStore& config, TelemetryStore& telemetry, OtaWakeOutput& wake)
+    : config_(config), telemetry_(telemetry), ota_(config, telemetry, wake) {}
 
 void BleService::begin() {
     instance_ = this;

@@ -4,6 +4,8 @@
 #include <vector>
 #include "ota_service.hpp"
 #include "firmware_version.hpp"
+#include "status_led.hpp"
+#include "status_led_policy.hpp"
 
 namespace {
 int64_t clock_us;
@@ -11,7 +13,7 @@ esp_partition_t partitions[] = {{16, 0x1e0000}, {17, 0x1e0000}};
 const esp_partition_t* running = &partitions[0];
 const esp_partition_t* selected;
 esp_ota_img_states_t image_states[2];
-bool metadata_exists, restarted, aborted, flash_fails, other_project;
+bool metadata_exists, restarted, aborted, flash_fails, other_project, update_led;
 std::vector<uint8_t> written;
 esp_app_desc_t description = {"1.0.2", "ebike_firmware_hw_v1"};
 const uint8_t sha_abc[32] = {0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
@@ -19,6 +21,7 @@ const uint8_t sha_abc[32] = {0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0
 void reset() {
     clock_us = 20'000'000; running = &partitions[0]; selected = running;
     image_states[0] = ESP_OTA_IMG_VALID; image_states[1] = ESP_OTA_IMG_UNDEFINED;
+    update_led = false;
     metadata_exists = true; restarted = aborted = flash_fails = other_project = false; written.clear();
 }
 std::array<uint8_t, 41> begin_packet(bool valid_hash = true, uint32_t size = 3, uint32_t code = ebike::kFirmwareVersionCode + 1) {
@@ -30,10 +33,22 @@ std::array<uint8_t, 41> begin_packet(bool valid_hash = true, uint32_t size = 3, 
 }
 const uint8_t chunk[] = {0, 0, 0, 0, 'a', 'b', 'c'};
 const uint8_t finish[] = {2}, activate[] = {4};
+struct FakeWake : ebike::OtaWakeOutput {
+    unsigned requests = 0;
+    uint16_t circumference = 0;
+    bool complete = false, cancelled = false, available = true;
+    bool request_ota_wake(uint16_t value) override {
+        if (!available) return false;
+        ++requests; circumference = value; complete = false; cancelled = false; return true;
+    }
+    void cancel_ota_wake() override { cancelled = true; }
+    bool ota_wake_complete() const override { return complete && !cancelled; }
+};
 struct Fixture {
+    FakeWake wake;
     ebike::ConfigStore config;
     ebike::TelemetryStore telemetry;
-    ebike::OtaService ota{config, telemetry};
+    ebike::OtaService ota{config, telemetry, wake};
     Fixture() { reset(); ota.begin(); }
     void begin(bool good_hash = true) {
         auto packet = begin_packet(good_hash); assert(ota.control(packet.data(), packet.size()));
@@ -75,6 +90,8 @@ esp_err_t esp_ota_get_partition_description(const esp_partition_t*, esp_app_desc
     if (other_project) std::strcpy(output->project_name, "ebike_firmware");
     return ESP_OK;
 }
+void ebike::status_led::updating(bool value) { update_led = value; }
+ebike::RuntimeConfig ebike::ConfigStore::snapshot() const { return config_; }
 void ebike::ConfigStore::set_speed_enabled(bool enabled) { speed_enabled_ = enabled; }
 
 int main() {
@@ -109,6 +126,36 @@ int main() {
       assert(!(f.ota.status().flags & 4)); f.tick(10'000'001); assert(f.ota.status().flags & 4); }
     // A subsequent update writes the other slot (B -> A).
     { Fixture f; running = &partitions[1]; selected = running; image_states[1] = ESP_OTA_IMG_VALID;
-      ebike::OtaService next(f.config, f.telemetry); next.begin(); auto packet = begin_packet();
+      ebike::OtaService next(f.config, f.telemetry, f.wake); next.begin(); auto packet = begin_packet();
       assert(next.control(packet.data(), packet.size())); assert(next.status().target_slot == 0); }
+    const uint8_t prepare[] = {5}, cancel[] = {3};
+    { Fixture f; assert(f.ota.status().flags & 8);
+      assert(f.ota.control(prepare, 1)); assert(f.ota.status().state == 5 && f.ota.busy());
+      assert(update_led && f.wake.requests == 1 && f.wake.circumference == 2360);
+      assert(!(f.ota.status().flags & 16));
+      assert(f.ota.control(prepare, 1) && f.wake.requests == 1);
+      // Emitted output pulses must not count as physical wheel movement.
+      f.telemetry.record_emitted_pulse_from_isr(clock_us);
+      f.wake.complete = true; assert(f.ota.status().flags & 16);
+      f.begin(); assert(f.ota.status().state == 1 && f.wake.requests == 1 && update_led);
+      f.ota.control(cancel, 1); assert(f.wake.cancelled && !update_led && !f.ota.busy()); }
+    { Fixture f; f.ota.control(prepare, 1); auto packet = begin_packet();
+      assert(!f.ota.control(packet.data(), packet.size())); assert(f.wake.cancelled && !update_led); }
+    { Fixture f; f.ota.control(prepare, 1); f.telemetry.record_wheel_edge_from_isr(clock_us);
+      f.tick(); assert(f.ota.status().error == 1 && f.wake.cancelled && !update_led); }
+    { Fixture f; f.ota.control(prepare, 1); f.ota.disconnected();
+      assert(f.ota.status().error == 6 && f.wake.cancelled && !update_led); }
+    { Fixture f; f.ota.control(prepare, 1); f.tick(30'000'001);
+      assert(f.ota.status().error == 5 && f.wake.cancelled && !update_led); }
+    { Fixture f; f.ota.control(prepare, 1); f.tick(20'000'000);
+      assert(f.ota.control(prepare, 1)); f.tick(20'000'000);
+      assert(f.ota.status().state == 5 && f.wake.requests == 1); }
+    { Fixture f; image_states[0] = ESP_OTA_IMG_PENDING_VERIFY;
+      assert(!f.ota.control(prepare, 1) && f.wake.requests == 0 && !update_led); }
+    { Fixture f; f.telemetry.record_wheel_edge_from_isr(clock_us);
+      assert(!f.ota.control(prepare, 1) && f.wake.requests == 0); }
+    { Fixture f; f.wake.available = false;
+      assert(!f.ota.control(prepare, 1) && !update_led); }
+    static_assert(ebike::status_led::update_color(true) == 0x180600, "OTA orange");
+    static_assert(ebike::status_led::update_color(false) == 0x100010, "OTA purple");
 }

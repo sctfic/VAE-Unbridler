@@ -28,7 +28,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
     }
 
     fun connected() {
-        if (!FirmwareUpdateStore.state.value.busy) check()
+        if (!FirmwareUpdateStore.state.value.busy) check(force = true)
     }
 
     fun check(force: Boolean = false) {
@@ -50,7 +50,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
     fun install() {
         if (installing?.isActive == true || !FirmwareUpdateStore.state.value.canInstall) return
         val release = FirmwareUpdateStore.state.value.release ?: return
-        phase(UpdatePhase.DOWNLOADING, "Contrôle d’immobilité avant le téléchargement…")
+        phase(UpdatePhase.WAKING, "Contrôle d’immobilité avant la mise à jour…")
         installing = scope.launch {
             checking?.cancel()
             var activated = false
@@ -59,23 +59,56 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                 client.lockFirmwareDevice(true)
                 val old = info(allowError = true)
                 require(old.supported && old.bootConfirmed && release.versionCode > old.versionCode && release.size <= old.capacity) {
-                    "Firmware incompatible ou trop volumineux pour la partition de l’ESP32."
+                    "Firmware incompatible ou trop volumineux pour cet ESP32."
                 }
                 requireStationary(old)
-                phase(UpdatePhase.DOWNLOADING, "Téléchargement GitHub et contrôle SHA-256…")
-                withContext(Dispatchers.IO) {
-                    repository.download(release, file) { received ->
-                        ensureActive()
-                        requireStationaryGps()
-                        FirmwareUpdateStore.update { it.copy(progress = received.toFloat() / release.size,
-                            detail = "Téléchargement GitHub : $received / ${release.size} octets · SHA-256 en cours") }
+                if (old.wakeSupported) {
+                    phase(UpdatePhase.WAKING, "Maintien de l’alimentation : trois impulsions lentes à 2 km/h…")
+                    client.firmwareControl(byteArrayOf(FirmwareProtocol.PREPARE_WAKE))
+                    withTimeout(25_000) {
+                        while (true) {
+                            val wake = info()
+                            requireStationary(wake)
+                            require(wake.state == 5) { "Préparation de la mise à jour interrompue." }
+                            if (wake.wakeComplete) break
+                            delay(250)
+                        }
                     }
                 }
-                phase(UpdatePhase.PREPARING, "Contrôle d’immobilité · préparation de la partition ${old.targetSlot + 1}/2…")
+                phase(UpdatePhase.DOWNLOADING, "Téléchargement GitHub et contrôle SHA-256…")
+                coroutineScope {
+                    val downloadDone = CompletableDeferred<Unit>()
+                    val heartbeat = if (old.wakeSupported) launch {
+                        while (!downloadDone.isCompleted) {
+                            withTimeoutOrNull(5_000) { downloadDone.await() }
+                            if (!downloadDone.isCompleted) {
+                                requireStationary(info())
+                                // Refresh the preparation timeout without repeating its three pulses.
+                                client.firmwareControl(byteArrayOf(FirmwareProtocol.PREPARE_WAKE))
+                            }
+                        }
+                    } else null
+                    try {
+                        withContext(Dispatchers.IO) {
+                            repository.download(release, file) { received ->
+                                ensureActive()
+                                requireStationaryGps()
+                                FirmwareUpdateStore.update { it.copy(progress = received.toFloat() / release.size,
+                                    detail = "Téléchargement GitHub : $received / ${release.size} octets · SHA-256 en cours") }
+                            }
+                        }
+                    } finally {
+                        downloadDone.complete(Unit)
+                        // Let any in-flight GATT operation finish before BEGIN; cancelling it
+                        // would deliberately disconnect the client to reject stale callbacks.
+                        heartbeat?.join()
+                    }
+                }
+                phase(UpdatePhase.PREPARING, "Contrôle d’immobilité · préparation de l’installation…")
                 requireStationary(info(allowError = true))
                 client.firmwareControl(FirmwareProtocol.begin(release.size, release.sha256, release.versionCode))
-                require(info().state == 1) { "L’ESP32 n’a pas préparé la partition inactive." }
-                phase(UpdatePhase.TRANSFERRING, "Transfert Bluetooth vers la partition inactive…")
+                require(info().state == 1) { "L’ESP32 n’a pas préparé l’installation." }
+                phase(UpdatePhase.TRANSFERRING, "Transfert Bluetooth vers l’ESP32…")
                 file.inputStream().use { input ->
                     var offset = 0
                     val buffer = ByteArray(client.firmwareChunkSize)
@@ -88,7 +121,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                         client.firmwareData(FirmwareProtocol.chunk(offset, buffer, length))
                         offset += length
                         FirmwareUpdateStore.update { it.copy(progress = offset.toFloat() / release.size,
-                            detail = "Écriture partition ${old.targetSlot + 1}/2 : $offset / ${release.size} octets (${offset * 100 / release.size} %)" ) }
+                            detail = "Transfert : $offset / ${release.size} octets (${offset * 100 / release.size} %)" ) }
                         if (offset - lastStatusOffset >= 16_384 || offset == release.size) {
                             val status = info()
                             require(status.state == 1 && status.received == offset) { "Progression ESP32 incohérente." }
@@ -101,7 +134,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                 require(info().state == 2) { "Le firmware n’a pas été validé par l’ESP32." }
                 requireStationaryGps()
                 val previousConnection = client.connectionEpoch
-                phase(UpdatePhase.RESTARTING, "Bascule sur la partition ${old.targetSlot + 1}/2 · redémarrage et reconnexion…")
+                phase(UpdatePhase.RESTARTING, "Redémarrage et reconnexion de l’ESP32…")
                 client.firmwareControl(byteArrayOf(FirmwareProtocol.ACTIVATE))
                 activated = true
                 withTimeout(90_000) {
@@ -117,7 +150,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                         delay(1_000)
                     }
                 }
-                phase(UpdatePhase.SUCCESS, "Firmware ${release.version} actif et confirmé sur la partition ${old.targetSlot + 1}/2.", 1f)
+                phase(UpdatePhase.SUCCESS, "Firmware ${release.version} actif et confirmé.", 1f)
             } catch (e: CancellationException) {
                 withContext(NonCancellable) { abortUnlessActivated(activated) }
                 phase(UpdatePhase.ERROR, "Mise à jour interrompue. Reconnectez l’ESP32 pour vérifier sa version.")
