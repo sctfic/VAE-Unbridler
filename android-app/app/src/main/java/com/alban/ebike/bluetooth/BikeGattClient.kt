@@ -58,7 +58,11 @@ class BikeGattClient(
     private var pendingUuid: UUID? = null
     private var lockedDevice: String? = null
     private var initialInfoPending = false
-    private var mtu = 64
+    private val eventDecoder = com.alban.ebike.model.WheelEventDecoder()
+    private val eventClock = com.alban.ebike.model.WheelEventClock()
+    private var eventProtocol = false
+    private var initialTelemetry: BikeTelemetry? = null
+    private var mtu = 23
     val firmwareChunkSize get() = (mtu - 7).coerceIn(1, 240)
     val ready get() = isReady
     private val initializationTimeout = Runnable { initialInfoPending = false; gatt?.disconnect() }
@@ -91,6 +95,7 @@ class BikeGattClient(
         pending?.completeExceptionally(IllegalStateException("Connexion Bluetooth arrêtée."))
         onFirmwareInfo(null)
         isReady = false
+        eventDecoder.reset(); eventClock.reset(); initialTelemetry = null
         initialInfoPending = false
         if (hasBluetoothPermission()) {
             runCatching {
@@ -213,6 +218,7 @@ class BikeGattClient(
                 return
             }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED) {
+                eventDecoder.reset(); eventClock.reset(); initialTelemetry = null
                 firmwareReadAttempted = false
                 otaReadAttempted = false
                 status("ESP32 connecté · préparation")
@@ -241,7 +247,7 @@ class BikeGattClient(
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
             this@BikeGattClient.mtu = mtu
-            if (mtu >= 35) gatt.discoverServices()
+            if (status == BluetoothGatt.GATT_SUCCESS && mtu >= 23) gatt.discoverServices()
             else {
                 status("Connexion incompatible · paquet Bluetooth trop court")
                 gatt.disconnect()
@@ -256,7 +262,10 @@ class BikeGattClient(
                 return
             }
             val service = gatt.getService(BleProtocol.serviceUuid) ?: run { gatt.disconnect(); return }
-            telemetryCharacteristic = service.getCharacteristic(BleProtocol.telemetryUuid)
+            val events = service.getCharacteristic(BleProtocol.eventsUuid)
+            eventProtocol = events != null
+            if (!eventProtocol && mtu < 35) { gatt.disconnect(); return }
+            telemetryCharacteristic = events ?: service.getCharacteristic(BleProtocol.telemetryUuid)
             configCharacteristic = service.getCharacteristic(BleProtocol.configUuid)
             otaControl = service.getCharacteristic(FirmwareProtocol.controlUuid).takeIf { mtu >= 51 }
             otaData = service.getCharacteristic(FirmwareProtocol.dataUuid).takeIf { otaControl != null }
@@ -275,6 +284,10 @@ class BikeGattClient(
             if (stopped || this@BikeGattClient.gatt !== gatt) return
             if (descriptor.uuid != CLIENT_CONFIGURATION_UUID) return
             when (descriptor.characteristic.uuid) {
+                BleProtocol.eventsUuid -> {
+                    if (status != BluetoothGatt.GATT_SUCCESS) { gatt.disconnect(); return }
+                    finishReady(gatt)
+                }
                 BleProtocol.telemetryUuid -> {
                     if (status != BluetoothGatt.GATT_SUCCESS) return
                     // Serialize CCCD writes before onReady can enqueue a config write.
@@ -354,6 +367,16 @@ class BikeGattClient(
     }
 
     private fun consumeTelemetry(address: String, uuid: UUID, value: ByteArray) {
+        if (uuid == BleProtocol.eventsUuid && eventProtocol) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            eventDecoder.accept(value, now)?.let { raw -> eventClock.accept(raw, now) }?.let {
+                GpsDebugLog.record("EVENT session=${it.session} seq=${it.sequence} kind=${it.eventType} " +
+                    "atUs=${it.eventTimeUs} wheelUs=${it.wheelIntervalUs} confirmation=${it.confirmation} " +
+                    "commandUs=${it.motorIntervalUs} motorAtUs=${it.motorTimeUs} motorValid=${it.motorTimeValid} " +
+                    "rejected=${it.rejectedEdges} dropped=${it.droppedEdges} telemetryDropped=${it.telemetryDrops} lost=${it.lostEvents}")
+                if (isReady) onTelemetry(address, it) else initialTelemetry = it
+            }
+        }
         if (uuid == BleProtocol.telemetryUuid) BleProtocol.decodeTelemetry(value)?.let { onTelemetry(address, it) }
         if (uuid == BleProtocol.sensorDiagnosticsUuid) {
             BleProtocol.decodeSensorDiagnostics(value)?.let { sensor ->
@@ -390,6 +413,8 @@ class BikeGattClient(
         isReady = true
         status("ESP32 connecté")
         onReady(connection.device.address)
+        initialTelemetry?.let { onTelemetry(connection.device.address, it) }
+        initialTelemetry = null
     }
 
     private fun scheduleReconnect() {

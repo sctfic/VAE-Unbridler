@@ -28,6 +28,7 @@ class BleService {
     void register_gatt();
     void start_advertising();
     void send_telemetry();
+    void send_event(BleEventPayload payload, uint8_t type);
     int read_telemetry(ble_gatt_access_ctxt* context);
     int read_sensor_diagnostics(ble_gatt_access_ctxt* context);
     int read_config(ble_gatt_access_ctxt* context);
@@ -42,10 +43,18 @@ class BleService {
     uint16_t ota_data_handle_ = 0;
     uint16_t firmware_handle_ = 0;
     uint16_t telemetry_handle_ = 0;
+    uint16_t events_handle_ = 0;
+    std::atomic<bool> events_subscribed_{false};
+    bool initial_state_sent_ = false;
+    std::atomic<uint32_t> stream_epoch_{0};
+    uint32_t sent_epoch_ = 0;
+    uint64_t session_ = 0;
+    int64_t last_presence_us_ = 0;
     uint16_t config_handle_ = 0;
     uint16_t sensor_diagnostics_handle_ = 0;
     volatile uint16_t connection_handle_ = 0xffff;
     uint16_t sequence_ = 0;
+    uint16_t legacy_sequence_ = 0;
     uint8_t address_type_ = 0;
 };
 

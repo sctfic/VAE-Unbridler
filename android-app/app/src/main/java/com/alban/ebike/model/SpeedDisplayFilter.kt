@@ -29,9 +29,9 @@ class SpeedDisplayFilter(private val accelerationKmhPerSecond: Float = 15f) {
         while (samples.size > 1 && samples.elementAt(1).time <= nowMs - 2000) samples.removeFirst()
     }
 
-    fun value(nowMs: Long): Float? {
+    fun value(nowMs: Long, maximumAgeMs: Long = 2000): Float? {
         val last = samples.lastOrNull() ?: return null
-        if (nowMs - last.time !in 0..2000) return null
+        if (nowMs - last.time !in 0..maximumAgeMs) return null
         prune(nowMs)
         val start = maxOf(samples.first().time, nowMs - 2000)
         if (start == nowMs) return last.value
@@ -47,7 +47,8 @@ class SpeedDisplayFilter(private val accelerationKmhPerSecond: Float = 15f) {
 }
 
 data class DisplaySpeeds(val main: Float? = null, val source: String = "GPS / ROUE —",
-    val gps: Float? = null, val wheel: Float? = null, val motor: Float? = null)
+    val gps: Float? = null, val wheel: Float? = null, val motor: Float? = null,
+    val wheelState: String = "absent")
 
 class SpeedDisplayModel {
     private val gps = SpeedDisplayFilter()
@@ -56,10 +57,39 @@ class SpeedDisplayModel {
     private var gpsTime = -1L
     private var wheelTime = -1L
     private var mode: Boolean? = null
+    private var session: Long? = null
+    private var wheelEventUs = -1L
+    private var motorEventUs = -1L
+    private var motorCommand = -1L
+    private var clockOffsetMs: Long? = null
 
     fun update(state: RideUiState, nowMs: Long): DisplaySpeeds {
-        if (!state.bluetoothReady) { wheel.reset(); motor.reset(); wheelTime = -1; mode = null }
-        else if (state.wheelTelemetryTimeMs != wheelTime) {
+        val event = state.eventTelemetry
+        var estimate: EventSpeeds? = null
+        if (!state.bluetoothReady) {
+            wheel.reset(); motor.reset(); wheelTime = -1; mode = null; session = null
+            wheelEventUs = -1; motorEventUs = -1; motorCommand = -1; clockOffsetMs = null
+        } else if (event != null) {
+            val offset = event.mappedEventMs - event.eventTimeUs / 1000
+            if (session != event.session || clockOffsetMs?.let { kotlin.math.abs(offset - it) > 250 } == true) {
+                wheel.reset(); motor.reset(); session = event.session
+                wheelEventUs = -1; motorEventUs = -1; motorCommand = -1
+            }
+            clockOffsetMs = offset
+            if (mode != null && mode != state.speedMode) motor.reset()
+            mode = state.speedMode
+            if (event.wheelMoving && event.wheelIntervalUs > 0 && event.wheelTimeUs != wheelEventUs) {
+                wheelEventUs = event.wheelTimeUs
+                wheel.accept(event.wheelSpeedKmh, event.mappedWheelMs)
+            }
+            if (event.motorTimeValid && event.motorIntervalUs > 0 &&
+                (event.motorTimeUs != motorEventUs || event.motorIntervalUs != motorCommand)) {
+                motorEventUs = event.motorTimeUs; motorCommand = event.motorIntervalUs
+                motor.accept(event.motorSpeedKmh, event.mappedEventMs)
+            }
+            estimate = WheelEventEstimate.at(event, nowMs)
+            if (estimate.wheel == 0f) { wheel.reset(); motor.reset() }
+        } else if (state.wheelTelemetryTimeMs != wheelTime) {
             if (mode != null && mode != state.speedMode) motor.reset()
             mode = state.speedMode
             wheelTime = state.wheelTelemetryTimeMs
@@ -70,9 +100,20 @@ class SpeedDisplayModel {
             gpsTime = state.gpsSpeedTimeMs
             gps.accept(state.gpsSpeedKmh.takeIf { state.gpsSpeedValid }, gpsTime)
         }
-        val g = gps.value(nowMs)
-        val w = wheel.value(nowMs)
-        val m = motor.value(nowMs)
+        val g = gps.value(nowMs, 4000).takeIf { state.gpsSpeedValid }
+        val w: Float?
+        val m: Float?
+        if (event != null && state.bluetoothReady) {
+            val e = estimate!!
+            w = e.wheel?.let { bound ->
+                if (bound == 0f) 0f else {
+                    val smooth = wheel.value(nowMs, WheelEventEstimate.stopMs(event)) ?: bound
+                    if ((nowMs - event.mappedWheelMs) * 1000 > event.wheelIntervalUs) minOf(bound, smooth) else smooth
+                }
+            }
+            m = e.motor?.let { bound -> if (bound == 0f) 0f else
+                motor.value(nowMs, WheelEventEstimate.stopMs(event)) ?: bound }
+        } else { w = wheel.value(nowMs); m = motor.value(nowMs) }
         // Selection uses the latest accepted GPS stop, not the slowly changing average.
         val gpsStopped = state.gpsSpeedValid && state.gpsSpeedKmh == 0f
         val source = when {
@@ -83,7 +124,7 @@ class SpeedDisplayModel {
         }
         val selected = when (source) { "GPS" -> g; "ROUE" -> w; else -> null }
         // Sources already carry their own independent two-second windows.
-        return DisplaySpeeds(selected, source, g, w, m)
+        return DisplaySpeeds(selected, source, g, w, m, estimate?.quality ?: "mesure")
     }
 }
 
@@ -96,6 +137,7 @@ object TelemetryDisplayValidation {
     }
     fun wheel(packet: BikeTelemetry) = periodMatches(packet.wheelSpeedKmh, packet.wheelIntervalUs, packet.circumferenceMm)
     fun motor(packet: BikeTelemetry): Boolean {
+        if (packet.eventVersion == 2) return periodMatches(packet.motorSpeedKmh, packet.motorIntervalUs, packet.circumferenceMm)
         if (!wheel(packet) || !periodMatches(packet.motorSpeedKmh, packet.motorIntervalUs, packet.circumferenceMm)) return false
         val expected = if (packet.simulatedOutput) 20f + (packet.wheelSpeedKmh * 100).toInt() / 10 / 100f else packet.wheelSpeedKmh
         return kotlin.math.abs(expected - packet.motorSpeedKmh) <= .03f

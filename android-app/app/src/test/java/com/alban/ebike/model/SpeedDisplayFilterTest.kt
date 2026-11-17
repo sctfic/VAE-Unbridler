@@ -43,7 +43,7 @@ class SpeedDisplayFilterTest {
         assertEquals("GPS", disconnected.source)
         assertEquals(0f, disconnected.main!!, 0f)
         assertNull(disconnected.wheel)
-        assertNull(model.update(state.copy(bluetoothReady = false), 4001).main)
+        assertNull(model.update(state.copy(bluetoothReady = false), 5001).main)
     }
     @Test fun validatesTelemetryPeriodsAndDoesNotShowBogusMotorPairedWithBadWheel() {
         val standard = BikeTelemetry(wheelSpeedKmh = 30f, motorSpeedKmh = 30f,

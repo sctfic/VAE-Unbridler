@@ -27,6 +27,12 @@ void TelemetryStore::update_wheel(uint32_t interval_us, uint16_t speed_centi_kmh
     portEXIT_CRITICAL(&lock_);
 }
 
+void TelemetryStore::set_circumference(uint16_t circumference_mm) {
+    portENTER_CRITICAL(&lock_);
+    state_.circumference_mm = circumference_mm;
+    portEXIT_CRITICAL(&lock_);
+}
+
 void TelemetryStore::set_stopped(uint16_t circumference_mm) {
     portENTER_CRITICAL(&lock_);
     state_.wheel_moving = false;
@@ -54,10 +60,37 @@ void TelemetryStore::record_emitted_pulse() {
     portEXIT_CRITICAL(&lock_);
 }
 
-void IRAM_ATTR TelemetryStore::record_emitted_pulse_from_isr() {
+void IRAM_ATTR TelemetryStore::record_emitted_pulse_from_isr(uint64_t timestamp_us) {
     portENTER_CRITICAL_ISR(&lock_);
     ++state_.emitted_pulses;
+    state_.emitted_motor_us = timestamp_us;
+    state_.motor_timestamp_valid = true;
     portEXIT_CRITICAL_ISR(&lock_);
+}
+
+void TelemetryStore::record_event(uint64_t at, bool turbo, uint8_t type, uint8_t confirmation) {
+    portENTER_CRITICAL(&lock_);
+    if (type == 1) state_.accepted_wheel_us = at;
+    state_.confirmation = confirmation;
+    if (count_ == 16) ++state_.telemetry_drops;
+    else {
+        events_[write_] = {make_event(state_, at, turbo), type};
+        write_ = (write_ + 1) % 16; ++count_;
+    }
+    portEXIT_CRITICAL(&lock_);
+}
+bool TelemetryStore::pop_event(BleEventPayload& payload, uint8_t& type) {
+    portENTER_CRITICAL(&lock_);
+    const bool available = count_ != 0;
+    if (available) {
+        payload = events_[read_].payload; type = events_[read_].type;
+        read_ = (read_ + 1) % 16; --count_;
+    }
+    portEXIT_CRITICAL(&lock_);
+    return available;
+}
+void TelemetryStore::record_telemetry_drop() {
+    portENTER_CRITICAL(&lock_); ++state_.telemetry_drops; portEXIT_CRITICAL(&lock_);
 }
 
 TelemetrySnapshot TelemetryStore::snapshot() const {

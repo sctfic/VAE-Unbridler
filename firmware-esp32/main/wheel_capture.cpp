@@ -9,7 +9,7 @@
 namespace ebike {
 namespace {
 constexpr char kTag[] = "wheel";
-constexpr TickType_t kTaskWaitTicks = pdMS_TO_TICKS(100);
+constexpr TickType_t kTaskWaitTicks = pdMS_TO_TICKS(20);
 }  // namespace
 
 WheelCapture::WheelCapture(ConfigStore& config, TelemetryStore& telemetry, PulseGenerator& pulse)
@@ -61,23 +61,36 @@ void WheelCapture::task_entry(void* context) {
 
 void WheelCapture::task() {
     bool previous_speed_mode = config_.speed_enabled();
+    RuntimeConfig previous_config = config_.snapshot();
+    uint32_t logged_emitted = 0;
     while (true) {
         telemetry_.wheel_task_heartbeat(esp_timer_get_time());
+        const auto diagnostic = telemetry_.snapshot();
+        if (diagnostic.emitted_pulses != logged_emitted) {
+            logged_emitted = diagnostic.emitted_pulses;
+            ESP_LOGD(kTag, "motor emitted=%lu actualAt=%llu command=%lu", (unsigned long)logged_emitted,
+                (unsigned long long)diagnostic.emitted_motor_us, (unsigned long)diagnostic.motor_interval_us);
+        }
         const bool speed_mode = config_.speed_enabled();
-        if (speed_mode != previous_speed_mode) {
-            previous_speed_mode = speed_mode;
-            // Recompute the retained cadence on the real-time core, never in BLE.
-            // Standard also needs a continuous cadence while bad input is rejected.
-            const RuntimeConfig config = config_.snapshot();
-            const auto plan = make_speed_plan(config.circumference_mm, config.threshold_centi_kmh,
-                                              period_filter_.interval_us(), speed_mode);
-            if (plan.motor_interval_us != 0) {
-                pulse_.set_output_interval(plan.motor_interval_us, plan.motor_speed_centi_kmh,
-                                            plan.simulated);
-            } else {
-                pulse_.stop();
-                telemetry_.update_motor(0, 0, false);
+        const RuntimeConfig current = config_.snapshot();
+        if (period_filter_.expired(esp_timer_get_time())) mark_stopped();
+        if (speed_mode != previous_speed_mode || current.circumference_mm != previous_config.circumference_mm ||
+            current.threshold_centi_kmh != previous_config.threshold_centi_kmh) {
+            const bool config_changed = current.circumference_mm != previous_config.circumference_mm ||
+                current.threshold_centi_kmh != previous_config.threshold_centi_kmh;
+            confirmation_.reset();
+            telemetry_.set_circumference(current.circumference_mm);
+            // Entering Turbo at speed keeps the last cadence until a fresh pair.
+            // Returning Standard applies the retained physical wheel period.
+            if (!speed_mode || config_changed) {
+                const auto plan = make_speed_plan(current.circumference_mm, current.threshold_centi_kmh,
+                                                  period_filter_.interval_us(), speed_mode);
+                if (plan.motor_interval_us) pulse_.set_output_interval(plan.motor_interval_us,
+                    plan.motor_speed_centi_kmh, plan.simulated);
             }
+            previous_speed_mode = speed_mode;
+            previous_config = current;
+            telemetry_.record_event(esp_timer_get_time(), speed_mode, 2, confirmation_.state());
         }
         int64_t edge_us = 0;
         if (xQueueReceive(edge_queue_, &edge_us, kTaskWaitTicks) == pdTRUE) {
@@ -93,15 +106,22 @@ void WheelCapture::task() {
 
 void WheelCapture::handle_edge(int64_t edge_us) {
     const RuntimeConfig config = config_.snapshot();
+    const bool turbo = config_.speed_enabled();
+    const int64_t candidate_us = period_filter_.last_edge_us() < 0 ? 0 : edge_us - period_filter_.last_edge_us();
     const auto result = period_filter_.accept(edge_us, config.circumference_mm);
     if (result == WheelPeriodFilter::Result::ignored) {
         telemetry_.record_rejected_edge();
+        confirmation_.reject();
+        ESP_LOGD(kTag, "at=%lld candidate=%lld raw=%lu rejected retained=%lu", edge_us, candidate_us,
+            (unsigned long)telemetry_.snapshot().sensor_interval_us, (unsigned long)period_filter_.interval_us());
+        telemetry_.record_event(edge_us, turbo, 2, confirmation_.state());
         return;
     }
     if (result == WheelPeriodFilter::Result::primed) {
         pulse_.stop();
         telemetry_.set_stopped(config_.snapshot().circumference_mm);
-        if (!config_.speed_enabled()) pulse_.emit_passthrough(0, 0);
+        confirmation_.reset();
+        telemetry_.record_event(edge_us, turbo, 2, 0);
         return;
     }
 
@@ -109,19 +129,30 @@ void WheelCapture::handle_edge(int64_t edge_us) {
     ++revolutions_;
 
     const SpeedPlan plan = make_speed_plan(config.circumference_mm, config.threshold_centi_kmh,
-                                           interval_us, config_.speed_enabled());
+                                           interval_us, turbo);
     telemetry_.update_wheel(interval_us, plan.wheel_speed_centi_kmh, revolutions_,
                             config.circumference_mm);
 
-    // Keep emitting the last validated cadence through rejected sensor edges.
-    // Rejections never trigger an immediate extra contact pulse.
-    pulse_.set_output_interval(plan.motor_interval_us, plan.motor_speed_centi_kmh, plan.simulated);
+    pulse_.retain_until(period_filter_.stop_deadline_us());
+    const uint32_t confirmed = confirmation_.accept(edge_us, interval_us, config.circumference_mm,
+                                                     turbo);
+    if (confirmed) {
+        const auto command = make_speed_plan(config.circumference_mm, config.threshold_centi_kmh,
+                                              confirmed, turbo);
+        pulse_.set_output_interval(command.motor_interval_us, command.motor_speed_centi_kmh, command.simulated);
+    }
+    ESP_LOGD(kTag, "accepted at=%lld candidate=%lld wheel=%lu confirmation=%u command=%lu", edge_us, candidate_us,
+        (unsigned long)interval_us, confirmation_.state(),
+        (unsigned long)telemetry_.snapshot().motor_interval_us);
+    telemetry_.record_event(edge_us, turbo, 1, confirmation_.state());
 }
 
 void WheelCapture::mark_stopped() {
     period_filter_.reset();
+    confirmation_.reset();
     pulse_.stop();
     telemetry_.set_stopped(config_.snapshot().circumference_mm);
+    telemetry_.record_event(esp_timer_get_time(), config_.speed_enabled(), 2, 0);
 }
 
 }  // namespace ebike

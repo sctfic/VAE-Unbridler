@@ -42,6 +42,7 @@ extern "C" void app_main(void) {
     static ebike::BleService ble(config, telemetry);
 
     config.begin();
+    telemetry.set_stopped(config.snapshot().circumference_mm);
     pulse.begin();
     wheel.begin();
     ble.begin();

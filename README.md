@@ -1,6 +1,10 @@
+> Android 0.4.24 (code 32), firmware matériel V1 1.0.4 (code OTA 3).
+> Acquisition/confirmation ESP32 et lissage d’affichage Android sont séparés ;
+> voir [les événements BLE v2 et la validation](BLE_EVENTS_V2.md).
+
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.23** — auteur **Lopez Alban**.
+Version Android **0.4.24** — auteur **Lopez Alban**.
 
 Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
 Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les changements 0.4.23](RELEASE_0.4.23.md).

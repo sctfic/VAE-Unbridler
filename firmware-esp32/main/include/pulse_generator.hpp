@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "driver/gptimer.h"
+#include "esp_attr.h"
 #include "ebike_types.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -21,6 +22,7 @@ class PulseGenerator {
     void emit_passthrough(uint32_t interval_us, uint16_t speed_centi_kmh);
     void set_output_interval(uint32_t interval_us, uint16_t speed_centi_kmh, bool simulated);
     void stop();
+    void retain_until(int64_t esp_deadline_us);
 
   private:
     static bool IRAM_ATTR on_alarm(gptimer_handle_t timer,
@@ -41,6 +43,7 @@ class PulseGenerator {
     volatile bool armed_ = false;
     volatile uint64_t next_start_us_ = 0;
     volatile uint64_t last_start_us_ = 0;
+    volatile uint64_t expires_us_ = 0;
     volatile uint32_t simulated_interval_us_ = 0;
     volatile uint16_t simulated_speed_centi_kmh_ = 0;
 };

@@ -91,8 +91,9 @@ class RideService : Service() {
         ).apply { setReferenceCounted(false) }
         serviceScope.launch(Dispatchers.Main.immediate) {
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                RideStateStore.refreshWheelSpeed()
                 RideStateStore.expireGpsSpeed()
-                kotlinx.coroutines.delay(1000)
+                kotlinx.coroutines.delay(250)
             }
         }
         serviceScope.launch {

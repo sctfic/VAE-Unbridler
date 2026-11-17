@@ -18,6 +18,7 @@ object RideStateStore {
     private val _state = MutableStateFlow(RideUiState())
     val state = _state.asStateFlow()
 
+    private val speedDisplay = com.alban.ebike.model.SpeedDisplayModel()
     private val profile = DistanceAltitudeProfile()
     private val track = VisibleTrack()
     private var trackPoints = emptyList<TrackPoint>()
@@ -105,9 +106,12 @@ object RideStateStore {
         GpsDebugLog.record("FIRMWARE version=${version ?: "unavailable"}")
         _state.update { it.copy(firmwareVersion = version) }
     }
-    fun setBluetoothReady(ready: Boolean) {
+    @Synchronized fun setBluetoothReady(ready: Boolean) {
         if (!ready) calibration.disconnect()
-        _state.update { it.copy(bluetoothReady = ready, firmwareVersion = if (ready) it.firmwareVersion else null,
+        _state.update { it.copy(bluetoothReady = ready,
+            eventTelemetry = if (ready) it.eventTelemetry else null,
+            wheelTelemetryCoherent = if (ready) it.wheelTelemetryCoherent else false,
+            motorTelemetryCoherent = if (ready) it.motorTelemetryCoherent else false,
             modeSupported = ready && it.modeSupported,
             speedMode = ready && it.speedMode,
             wheelSpeedKmh = if (ready) it.wheelSpeedKmh else 0f,
@@ -124,7 +128,7 @@ object RideStateStore {
         _state.update { it.copy(gpsStatus = message) }
     }
 
-    fun ingestTelemetry(telemetry: BikeTelemetry) {
+    @Synchronized fun ingestTelemetry(telemetry: BikeTelemetry) {
         val gps = _state.value
         GpsDebugLog.record("BLE seq=${telemetry.sequence} uptimeMs=${telemetry.uptimeMs} " +
             "wheelKmh=${telemetry.wheelSpeedKmh} motorKmh=${telemetry.motorSpeedKmh} " +
@@ -136,6 +140,7 @@ object RideStateStore {
         RideTrackJournal.recordTelemetry(telemetry)
         calibration.telemetry(SystemClock.elapsedRealtime(), telemetry.uptimeMs, telemetry.wheelRevolutions)
         _state.update { it.copy(
+            eventTelemetry = telemetry.takeIf { p -> p.eventVersion == 2 },
             wheelTelemetryTimeMs = SystemClock.elapsedRealtime(),
             wheelTelemetryCoherent = com.alban.ebike.model.TelemetryDisplayValidation.wheel(telemetry),
             motorTelemetryCoherent = com.alban.ebike.model.TelemetryDisplayValidation.motor(telemetry),
@@ -145,6 +150,18 @@ object RideStateStore {
             motorSpeedKmh = telemetry.motorSpeedKmh,
             simulatedOutput = telemetry.simulatedOutput,
         ) }
+        refreshWheelSpeed()
+    }
+
+    @Synchronized fun refreshWheelSpeed(nowMs: Long = SystemClock.elapsedRealtime()) {
+        _state.value.eventTelemetry?.let { p ->
+            val estimate = com.alban.ebike.model.WheelEventEstimate.at(p, nowMs)
+            _state.update { it.copy(wheelSpeedKmh = estimate.wheel ?: 0f,
+                motorSpeedKmh = estimate.motor ?: 0f, wheelTelemetryCoherent = estimate.wheel != null,
+                motorTelemetryCoherent = estimate.motor != null, wheelMeasurementState = estimate.quality) }
+        }
+        val display = speedDisplay.update(_state.value, nowMs)
+        _state.update { it.copy(speedPresentation = display) }
     }
 
     @Synchronized

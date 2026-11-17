@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,6 +30,8 @@ ble_uuid128_t kServiceUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e
                                                0x9f, 0x4d, 0x8a, 0x9b, 0x00, 0x00, 0xf5, 0xa6);
 ble_uuid128_t kTelemetryUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
                                                  0x9f, 0x4d, 0x8a, 0x9b, 0x01, 0x00, 0xf5, 0xa6);
+ble_uuid128_t kEventsUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
+                                              0x9f, 0x4d, 0x8a, 0x9b, 0x07, 0x00, 0xf5, 0xa6);
 ble_uuid128_t kConfigUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
                                               0x9f, 0x4d, 0x8a, 0x9b, 0x02, 0x00, 0xf5, 0xa6);
 ble_uuid128_t kSensorDiagnosticsUuid = BLE_UUID128_INIT(0x01, 0x11, 0x3d, 0x87, 0x9d, 0x9e, 0xda, 0xa0,
@@ -48,6 +51,7 @@ BleService::BleService(ConfigStore& config, TelemetryStore& telemetry)
 
 void BleService::begin() {
     instance_ = this;
+    session_ = (uint64_t(esp_random()) << 32) | esp_random();
     ota_.begin();
     const esp_err_t init_result = nimble_port_init();
     if (init_result != ESP_OK) {
@@ -79,7 +83,7 @@ void BleService::notify_task(void* context) {
     while (true) {
         self->ota_.tick(self->ble_ready_);
         self->send_telemetry();
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
@@ -97,7 +101,7 @@ void BleService::on_sync() {
 }
 
 void BleService::register_gatt() {
-    static ble_gatt_chr_def characteristics[7]{};
+    static ble_gatt_chr_def characteristics[8]{};
     characteristics[0].uuid = &kTelemetryUuid.u;
     characteristics[0].access_cb = &BleService::gatt_access;
     characteristics[0].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
@@ -125,6 +129,11 @@ void BleService::register_gatt() {
     characteristics[5].access_cb = &BleService::gatt_access;
     characteristics[5].flags = BLE_GATT_CHR_F_WRITE;
     characteristics[5].val_handle = &ota_data_handle_;
+
+    characteristics[6].uuid = &kEventsUuid.u;
+    characteristics[6].access_cb = &BleService::gatt_access;
+    characteristics[6].flags = BLE_GATT_CHR_F_NOTIFY;
+    characteristics[6].val_handle = &events_handle_;
 
     static ble_gatt_svc_def services[2]{};
     services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
@@ -183,11 +192,18 @@ int BleService::gap_event(ble_gap_event* event, void* context) {
             }
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
+            self->events_subscribed_ = false;
             self->connection_handle_ = kNoConnection;
             self->ota_.disconnected();
             status_led::connected(false);
             ESP_LOGI(kTag, "Android disconnected");
             self->start_advertising();
+            return 0;
+        case BLE_GAP_EVENT_SUBSCRIBE:
+            if (event->subscribe.attr_handle == self->events_handle_) {
+                if (event->subscribe.cur_notify) ++self->stream_epoch_;
+                self->events_subscribed_ = event->subscribe.cur_notify != 0;
+            }
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             self->start_advertising();
@@ -240,18 +256,18 @@ int BleService::gatt_access(uint16_t, uint16_t attribute_handle, ble_gatt_access
 }
 
 int BleService::read_sensor_diagnostics(ble_gatt_access_ctxt* context) {
-    const auto packet = make_sensor_diagnostics(telemetry_.snapshot(), sequence_++);
+    const auto packet = make_sensor_diagnostics(telemetry_.snapshot(), legacy_sequence_++);
     return os_mbuf_append(context->om, &packet, sizeof(packet)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 int BleService::read_telemetry(ble_gatt_access_ctxt* context) {
     const TelemetrySnapshot state = telemetry_.snapshot();
     BleTelemetryPacket packet{};
-    packet.protocol_version = kProtocolVersion;
+    packet.protocol_version = 2;
     packet.flags = static_cast<uint8_t>((state.wheel_moving ? 0x01 : 0) |
                                         (state.simulated_output ? 0x02 : 0) | 0x08 |
                                         (config_.speed_enabled() ? 0x04 : 0));
-    packet.sequence = sequence_++;
+    packet.sequence = legacy_sequence_++;
     packet.uptime_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
     packet.wheel_interval_us = state.wheel_interval_us;
     packet.motor_interval_us = state.motor_interval_us;
@@ -296,37 +312,45 @@ int BleService::write_config(ble_gatt_access_ctxt* context) {
     return 0;
 }
 
-void BleService::send_telemetry() {
+void BleService::send_event(BleEventPayload payload, uint8_t type) {
     const uint16_t connection = connection_handle_;
-    if (connection == kNoConnection || telemetry_handle_ == 0) {
+    payload.session = session_;
+    const uint16_t seq = sequence_++;
+    for (uint8_t part = 0; part < 4; ++part) {
+        BleEventFragment packet{};
+        packet.type_index = (type << 4) | part;
+        packet.sequence = seq;
+        std::memcpy(packet.data, reinterpret_cast<const uint8_t*>(&payload) + part * 16, 16);
+        os_mbuf* buffer = ble_hs_mbuf_from_flat(&packet, sizeof(packet));
+        if (!buffer || ble_gatts_notify_custom(connection, events_handle_, buffer) != 0) {
+            telemetry_.record_telemetry_drop();
+            break; // partial events are discarded by the receiver
+        }
+    }
+}
+
+void BleService::send_telemetry() {
+    BleEventPayload payload{};
+    uint8_t type = 0;
+    const bool subscribed = connection_handle_ != kNoConnection && events_subscribed_;
+    const uint32_t epoch = stream_epoch_;
+    if (!subscribed || !initial_state_sent_ || epoch != sent_epoch_) {
+        // Never replay pre-connection measurements as current measurements.
+        while (telemetry_.pop_event(payload, type)) {}
+        initial_state_sent_ = subscribed;
+        sent_epoch_ = epoch;
+        if (subscribed) {
+            const auto now = esp_timer_get_time();
+            send_event(make_event(telemetry_.snapshot(), now, config_.speed_enabled()), 2);
+            last_presence_us_ = now;
+        }
         return;
     }
-    const TelemetrySnapshot state = telemetry_.snapshot();
-    BleTelemetryPacket packet{};
-    packet.protocol_version = kProtocolVersion;
-    packet.flags = static_cast<uint8_t>((state.wheel_moving ? 0x01 : 0) |
-                                        (state.simulated_output ? 0x02 : 0) | 0x08 |
-                                        (config_.speed_enabled() ? 0x04 : 0));
-    packet.sequence = sequence_++;
-    packet.uptime_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
-    packet.wheel_interval_us = state.wheel_interval_us;
-    packet.motor_interval_us = state.motor_interval_us;
-    packet.wheel_speed_centi_kmh = state.wheel_speed_centi_kmh;
-    packet.motor_speed_centi_kmh = state.motor_speed_centi_kmh;
-    packet.wheel_revolutions = state.wheel_revolutions;
-    packet.emitted_pulses = state.emitted_pulses;
-    packet.circumference_mm = state.circumference_mm;
-
-    os_mbuf* buffer = ble_hs_mbuf_from_flat(&packet, sizeof(packet));
-    if (buffer != nullptr) {
-        ble_gatts_notify_custom(connection, telemetry_handle_, buffer);
-    }
-    const auto sensor_packet = make_sensor_diagnostics(state, packet.sequence);
-    os_mbuf* sensor_buffer = ble_hs_mbuf_from_flat(&sensor_packet, sizeof(sensor_packet));
-    if (sensor_buffer != nullptr && sensor_diagnostics_handle_ != 0) {
-        ble_gatts_notify_custom(connection, sensor_diagnostics_handle_, sensor_buffer);
-    } else if (sensor_buffer != nullptr) {
-        os_mbuf_free_chain(sensor_buffer);
+    for (unsigned i = 0; i < 16 && telemetry_.pop_event(payload, type); ++i) send_event(payload, type);
+    const auto now = esp_timer_get_time();
+    if (now - last_presence_us_ >= 5'000'000) {
+        send_event(make_event(telemetry_.snapshot(), now, config_.speed_enabled()), 3);
+        last_presence_us_ = now;
     }
 }
 

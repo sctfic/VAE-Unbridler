@@ -6,6 +6,7 @@ import java.util.UUID
 
 object BleProtocol {
     val serviceUuid: UUID = UUID.fromString("a6f50000-9b8a-4d9f-a0da-9e9d873d1101")
+    val eventsUuid: UUID = UUID.fromString("a6f50007-9b8a-4d9f-a0da-9e9d873d1101")
     val telemetryUuid: UUID = UUID.fromString("a6f50001-9b8a-4d9f-a0da-9e9d873d1101")
     val configUuid: UUID = UUID.fromString("a6f50002-9b8a-4d9f-a0da-9e9d873d1101")
     val sensorDiagnosticsUuid: UUID = UUID.fromString("a6f50003-9b8a-4d9f-a0da-9e9d873d1101")
@@ -83,6 +84,22 @@ data class SensorDiagnostics(
 )
 
 data class BikeTelemetry(
+    val eventVersion: Int = 1,
+    val eventType: Int = 0,
+    val session: Long = 0,
+    val eventTimeUs: Long = 0,
+    val wheelTimeUs: Long = 0,
+    val motorTimeUs: Long = 0,
+    val motorTimeValid: Boolean = false,
+    val confirmation: Int = 0,
+    val rejectedEdges: Long = 0,
+    val droppedEdges: Long = 0,
+    val telemetryDrops: Long = 0,
+    val mappedEventMs: Long = -1,
+    val mappedWheelMs: Long = -1,
+    val mappedMotorMs: Long = -1,
+    val receivedMs: Long = -1,
+    val lostEvents: Long = 0,
     val speedMode: Boolean = false,
     val modeSupported: Boolean = false,
     val wheelMoving: Boolean = false,

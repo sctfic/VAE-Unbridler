@@ -54,6 +54,11 @@ class WheelPeriodFilter {
         return last_edge_us_ >= 0 && now_us - last_edge_us_ > timeout;
     }
 
+    int64_t last_edge_us() const { return last_edge_us_; }
+    int64_t stop_deadline_us() const {
+        return last_edge_us_ < 0 ? 0 : last_edge_us_ + (interval_us_ == 0 ? kMaximumIntervalUs :
+            std::max<int64_t>(1'500'000, int64_t(interval_us_) * 3));
+    }
     uint32_t interval_us() const { return interval_us_; }
     void reset() { last_edge_us_ = -1; interval_us_ = 0; }
 

@@ -35,6 +35,9 @@ data class TrackPoint(
 data class RidePause(val start: TrackPoint, val end: TrackPoint? = null)
 
 data class RideUiState(
+    val eventTelemetry: BikeTelemetry? = null,
+    val speedPresentation: DisplaySpeeds? = null,
+    val wheelMeasurementState: String = "absent",
     val firmwareVersion: String? = null,
     val gpsSpeedTimeMs: Long = -1L,
     val wheelTelemetryTimeMs: Long = -1L,
@@ -71,16 +74,22 @@ data class RideUiState(
 ) {
     private val validWheelSpeed get() = wheelSpeedKmh.takeIf { bluetoothReady && wheelTelemetryCoherent && it.isFinite() && it in 0f..99f }
     private val wheelOverridesGpsZero get() = gpsSpeedValid && gpsSpeedKmh == 0f && (validWheelSpeed ?: 0f) > 0f
-    val displayedSpeedKmh: Float? get() = when {
-        wheelOverridesGpsZero -> validWheelSpeed
-        gpsSpeedValid -> gpsSpeedKmh
-        bluetoothReady -> validWheelSpeed
-        else -> null
+    val displayedSpeedKmh: Float? get() {
+        speedPresentation?.let { return it.main }
+        return when {
+            wheelOverridesGpsZero -> validWheelSpeed
+            gpsSpeedValid -> gpsSpeedKmh
+            bluetoothReady -> validWheelSpeed
+            else -> null
+        }
     }
-    val displayedSpeedSource: String get() = when {
-        wheelOverridesGpsZero -> "ROUE"
-        gpsSpeedValid -> "GPS"
-        validWheelSpeed != null -> "ROUE"
-        else -> "GPS / ROUE —"
+    val displayedSpeedSource: String get() {
+        speedPresentation?.let { return it.source }
+        return when {
+            wheelOverridesGpsZero -> "ROUE"
+            gpsSpeedValid -> "GPS"
+            validWheelSpeed != null -> "ROUE"
+            else -> "GPS / ROUE —"
+        }
     }
 }

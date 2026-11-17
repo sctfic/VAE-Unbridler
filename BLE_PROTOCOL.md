@@ -1,3 +1,18 @@
+# Protocole BLE : événements v2 (firmware 1.0.3 / Android 0.4.24)
+
+Le protocole courant est décrit dans [BLE_EVENTS_V2.md](BLE_EVENTS_V2.md).
+Les mesures utilisent `a6f50007-9b8a-4d9f-a0da-9e9d873d1101` (Notify),
+en quatre fragments de 20 octets, y compris avec ATT MTU 23.
+Configuration, lecture de version et OTA gardent leurs UUID et formats existants.
+Les notifications périodiques 0001/0003 sont supprimées sur le nouveau firmware.
+La lecture 0001 porte la version 2 pour être explicitement refusée par les
+anciens décodeurs. Android détecte 0007 avant de s’abonner ; sans 0007, il peut
+encore lire les télémétries v1 d’un ancien firmware (MTU >=35), sans inventer
+d’horodatages d’impulsions manquants. Le mode d’estimation entre impulsions
+nécessite le firmware v2.
+
+Le reste de ce document décrit **l’ancien protocole v1**, conservé pour référence.
+
 # E-Bike BLE protocol v1
 
 The ESP32 is a BLE GATT peripheral named `E-Bike RT`. UUIDs are stable and little-endian binary payloads are used to avoid parsing latency.

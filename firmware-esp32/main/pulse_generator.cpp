@@ -7,6 +7,8 @@
 #include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "pulse_schedule.hpp"
 #include "freertos/task.h"
 #include "hal/gpio_ll.h"
 #include "soc/gpio_struct.h"
@@ -84,52 +86,33 @@ void PulseGenerator::initialize_on_current_core() {
 }
 
 void PulseGenerator::emit_passthrough(uint32_t interval_us, uint16_t speed_centi_kmh) {
-    const uint64_t now = now_us();
-    portENTER_CRITICAL(&lock_);
-    continuous_ = false;
-    simulated_interval_us_ = 0;
-    simulated_speed_centi_kmh_ = 0;
-    if (!contact_closed_) {
-        next_start_us_ = now + kEarliestTaskAlarmUs;
-        armed_ = true;
-    }
-    const bool should_arm = !contact_closed_;
-    const uint64_t alarm_at = next_start_us_;
-    portEXIT_CRITICAL(&lock_);
+    // Kept for source compatibility; every contact now uses the same scheduler.
+    if (interval_us) set_output_interval(interval_us, speed_centi_kmh, false);
+}
 
-    telemetry_.update_motor(interval_us, speed_centi_kmh, false);
-    if (should_arm) {
-        arm_from_task(alarm_at);
-    }
+void PulseGenerator::retain_until(int64_t esp_deadline_us) {
+    portENTER_CRITICAL(&lock_);
+    const int64_t remaining = esp_deadline_us - esp_timer_get_time();
+    expires_us_ = now_us() + static_cast<uint64_t>(std::max<int64_t>(0, remaining));
+    portEXIT_CRITICAL(&lock_);
 }
 
 void PulseGenerator::set_output_interval(uint32_t interval_us, uint16_t speed_centi_kmh,
                                          bool simulated) {
-    if (interval_us <= kPulseWidthUs + 100) {
-        return;
-    }
-    const uint64_t now = now_us();
+    if (interval_us <= kPulseWidthUs + 100) return;
     portENTER_CRITICAL(&lock_);
+    const bool changed = !continuous_ || simulated_interval_us_ != interval_us;
     continuous_ = true;
     simulated_interval_us_ = interval_us;
     simulated_speed_centi_kmh_ = speed_centi_kmh;
-    if (!contact_closed_) {
-        uint64_t candidate = last_start_us_ == 0 ? now + kEarliestTaskAlarmUs
-                                                  : last_start_us_ + interval_us;
-        if (candidate <= now + kEarliestTaskAlarmUs) {
-            candidate = now + kEarliestTaskAlarmUs;
-        }
-        next_start_us_ = candidate;
+    if (!contact_closed_ && (changed || !armed_)) {
+        next_start_us_ = next_pulse_start(last_start_us_, now_us(), interval_us);
         armed_ = true;
+        // The timer ISR is on this core. Serialize alarm changes with its state.
+        arm_from_task(next_start_us_);
     }
-    const bool should_arm = !contact_closed_;
-    const uint64_t alarm_at = next_start_us_;
     portEXIT_CRITICAL(&lock_);
-
     telemetry_.update_motor(interval_us, speed_centi_kmh, simulated);
-    if (should_arm) {
-        arm_from_task(alarm_at);
-    }
 }
 
 void PulseGenerator::stop() {
@@ -137,22 +120,21 @@ void PulseGenerator::stop() {
     continuous_ = false;
     simulated_interval_us_ = 0;
     simulated_speed_centi_kmh_ = 0;
+    expires_us_ = 0;
     if (!contact_closed_) {
         armed_ = false;
-    }
-    const bool should_disarm = !contact_closed_;
-    portEXIT_CRITICAL(&lock_);
-
-    if (should_disarm) {
         disarm_from_task();
     }
+    portEXIT_CRITICAL(&lock_);
 }
 
 bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
                                         const gptimer_alarm_event_data_t* event,
                                         void* context) {
     auto* self = static_cast<PulseGenerator*>(context);
-    const uint64_t at_us = event->alarm_value;
+    (void)event;
+    uint64_t at_us = 0;
+    gptimer_get_raw_count(timer, &at_us); // actual ISR time, not the scheduled alarm
 
     portENTER_CRITICAL_ISR(&self->lock_);
     if (!self->armed_) {
@@ -161,6 +143,12 @@ bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
     }
 
     if (!self->contact_closed_) {
+        if (!self->continuous_ || at_us > self->expires_us_) {
+            self->armed_ = false;
+            gptimer_set_alarm_action(timer, nullptr);
+            portEXIT_CRITICAL_ISR(&self->lock_);
+            return false;
+        }
         self->contact_closed_ = true;
         self->last_start_us_ = at_us;
         set_contact_closed(true);
@@ -169,13 +157,13 @@ bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
         close_alarm = make_alarm(at_us + kPulseWidthUs);
         gptimer_set_alarm_action(timer, &close_alarm);
         portEXIT_CRITICAL_ISR(&self->lock_);
-        self->telemetry_.record_emitted_pulse_from_isr();
+        self->telemetry_.record_emitted_pulse_from_isr(esp_timer_get_time());
         return false;
     }
 
     self->contact_closed_ = false;
     set_contact_closed(false);
-    if (self->continuous_ && self->simulated_interval_us_ > kPulseWidthUs) {
+    if (self->continuous_ && at_us < self->expires_us_ && self->simulated_interval_us_ > kPulseWidthUs) {
         self->next_start_us_ = self->last_start_us_ + self->simulated_interval_us_;
         if (self->next_start_us_ <= at_us + kEarliestTaskAlarmUs) {
             self->next_start_us_ = at_us + kEarliestTaskAlarmUs;

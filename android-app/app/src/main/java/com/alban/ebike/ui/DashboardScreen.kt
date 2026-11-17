@@ -339,13 +339,13 @@ private fun Modifier.metricHalo(active: Boolean): Modifier = if (!active) this e
         var lastLog = 0L
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
             val now = android.os.SystemClock.elapsedRealtime()
-            presented = displayModel.update(latestState, now)
+            presented = latestState.speedPresentation ?: displayModel.update(latestState, now)
             if (now - lastLog >= 1000) {
                 lastLog = now
                 com.alban.ebike.location.GpsDebugLog.record("DISPLAY main=${presented.main} source=${presented.source} " +
                     "gps=${presented.gps} wheel=${presented.wheel} motor=${presented.motor} rawWheel=${latestState.wheelSpeedKmh}")
             }
-            kotlinx.coroutines.delay(50)
+            kotlinx.coroutines.delay(250)
         }
     }
     val shownSpeed = if (readout.historical) readout.speedKmh else presented.main
@@ -378,7 +378,7 @@ private fun Modifier.metricHalo(active: Boolean): Modifier = if (!active) this e
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(if (readout.historical) "POINT DU PARCOURS" else if (!state.bluetoothReady) "MODE —" else if (!state.modeSupported) "MODE INCONNU" else if (state.speedMode) "TURBO" else "STANDARD",
                 color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-            Text(if (readout.historical) readout.speedSource else presented.source, color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
+            Text(if (readout.historical) readout.speedSource else presented.source + (if (latestState.eventTelemetry != null) " · ${if (presented.source == "GPS") "roue " else ""}${presented.wheelState}" else ""), color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
             Text(androidx.compose.ui.text.buildAnnotatedString {
                 if (shownSpeed == null) append("—") else {
                     val formatted = "%.1f".format(speed)
