@@ -199,6 +199,9 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
             do {
             val found = ArrayList<MapFeature>()
             var complete = true
+            // Cached tiles arrive in a burst. Publish them together instead of
+            // rebuilding projected geometry for every intermediate subset.
+            var lastPublication = android.os.SystemClock.elapsedRealtime()
             val keys = NeighbourPrefetch.covering(grid, 2)
             for (tile in keys) {
                 if (!objectLayersEnabled) { complete = false; break }
@@ -206,7 +209,11 @@ class TerrainViewModel(application: Application) : AndroidViewModel(application)
                 ensureActive()
                 if (loaded == null) complete = false else {
                     found.addAll(loaded.features); complete = complete && loaded.complete
-                    mutableMap.value = MapFeatureArea(grid.originLat, grid.originLon, grid.halfSizeM, true, found.toList(), false)
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastPublication >= 300) {
+                        mutableMap.value = MapFeatureArea(grid.originLat, grid.originLon, grid.halfSizeM, true, found.toList(), false)
+                        lastPublication = now
+                    }
                 }
             }
             val area = if (found.isEmpty() && !complete) null else

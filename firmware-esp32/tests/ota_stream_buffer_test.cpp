@@ -4,18 +4,23 @@
 using Buffer = ebike::OtaStreamBuffer;
 using Result = Buffer::Result;
 int main() {
-    Buffer b; uint8_t bytes[240]{}; uint8_t out[4096]{};
-    assert(b.append(0, bytes, 240, 0, 10000) == Result::accepted);
-    assert(b.append(0, bytes, 240, 0, 10000) == Result::duplicate);
-    assert(b.append(480, bytes, 240, 0, 10000) == Result::gap);
-    assert(b.append(120, bytes, 240, 0, 10000) == Result::gap);
-    for (unsigned i = 1; i < 16; ++i) assert(b.append(i*240, bytes, 240, 0, 10000) == Result::accepted);
-    assert(b.append(3840, bytes, 240, 0, 10000) == Result::full);
+    Buffer b; uint8_t bytes[508]{}; uint8_t out[4096]{};
+    constexpr auto window = ebike::kOtaStreamWindow;
+    assert(b.append(0, bytes, 508, 0, 100000) == Result::accepted);
+    assert(b.append(0, bytes, 508, 0, 100000) == Result::duplicate);
+    assert(b.append(1016, bytes, 508, 0, 100000) == Result::gap);
+    assert(b.append(250, bytes, 508, 0, 100000) == Result::gap);
+    uint32_t fill = 508;
+    while (fill < window) {
+        const auto n = std::min<size_t>(508, window - fill);
+        assert(b.append(fill, bytes, n, 0, 100000) == Result::accepted); fill += static_cast<uint32_t>(n);
+    }
+    assert(b.append(window, bytes, 508, 0, 100000) == Result::full);
     assert(b.drain(out, 1280) == 1280);
-    // RAM freed by a flash worker is NOT an ACK until flash has committed it.
-    assert(b.append(3840, bytes, 240, 0, 10000) == Result::full);
-    assert(b.append(3840, bytes, 240, 1280, 10000) == Result::accepted);
-    assert(b.append(UINT32_MAX, bytes, 1, 1280, 10000) == Result::invalid);
+    // Draining RAM does not grant credit before the flash write commits.
+    assert(b.append(window, bytes, 508, 0, 100000) == Result::full);
+    assert(b.append(window, bytes, 508, 1280, 100000) == Result::accepted);
+    assert(b.append(UINT32_MAX, bytes, 1, 1280, 100000) == Result::invalid);
     b.reset();
     std::vector<uint8_t> expected, actual;
     uint32_t accepted = 0, committed = 0;

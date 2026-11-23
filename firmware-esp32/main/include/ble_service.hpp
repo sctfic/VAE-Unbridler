@@ -6,6 +6,7 @@
 #include "config_store.hpp"
 #include "telemetry_store.hpp"
 #include "ota_service.hpp"
+#include "freertos/task.h"
 
 struct ble_gatt_access_ctxt;
 struct ble_gap_event;
@@ -21,6 +22,16 @@ class BleService {
     static void notify_task(void* context);
     static void flash_task(void* context);
     void update_link_priority();
+    void send_progress();
+    TaskHandle_t flash_task_handle_ = nullptr;
+    std::atomic<bool> progress_subscribed_{false};
+    std::atomic<uint32_t> progress_epoch_{0};
+    uint32_t ack_epoch_ = 0;
+    OtaProgress last_progress_{};
+    std::atomic<uint16_t> interval_units_{0};
+    std::atomic<uint8_t> tx_phy_{1}, rx_phy_{1};
+    int64_t last_priority_request_us_ = 0;
+    unsigned priority_attempts_ = 0;
     static void on_sync();
     static int gap_event(ble_gap_event* event, void* context);
     static int gatt_access(uint16_t connection_handle, uint16_t attribute_handle,

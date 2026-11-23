@@ -1,60 +1,56 @@
 package com.alban.ebike.firmware
 
-import com.alban.ebike.model.FirmwareInfo
 import com.alban.ebike.model.FirmwareProtocol
 import java.io.File
-import java.io.RandomAccessFile
 import kotlinx.coroutines.*
+import java.util.Locale
 
-/** Bounded windows, persisted-offset ACKs and bounded retransmissions. No GPS dependency. */
-class FirmwareTransfer(private val nowMs: () -> Long, private val pause: suspend (Long) -> Unit = { delay(it) }) {
+fun firmwareTransferDetail(received: Int, total: Int, kilobytesPerSecond: Double): String {
+    require(total > 0 && received in 0..total)
+    val rate = String.format(Locale.FRANCE, "%.1f", kilobytesPerSecond)
+    return "Transfert : $received / $total octets (${received.toLong() * 100 / total} %) · $rate Ko/s"
+}
+
+/** Continuous credit window. Only durable ESP notifications grant new credit. */
+class FirmwareTransfer(private val nowMs: () -> Long) {
     data class Result(val bytes: Int, val durationMs: Long, val retries: Int)
     suspend fun send(file: File, size: Int, chunkSize: Int,
-        write: suspend (ByteArray) -> Unit, acknowledge: suspend () -> FirmwareInfo,
-        progress: (Int, Double) -> Unit): Result {
-        require(size > 0 && file.length() == size.toLong() && chunkSize in 1..240)
+        write: suspend (ByteArray) -> Unit,
+        acknowledge: suspend (Int) -> com.alban.ebike.model.FirmwareProgress,
+        progress: (Int, Double) -> Unit): Result = withContext(Dispatchers.IO) {
+        require(size > 0 && file.length() == size.toLong() && chunkSize in 1..508)
+        val image = file.readBytes()
         val start = nowMs()
         var durable = 0
+        var sent = 0
         var retries = 0
-        val windowSize = minOf(FirmwareProtocol.STREAM_WINDOW_BYTES,
-            chunkSize * FirmwareProtocol.STREAM_WINDOW_PACKETS)
-        RandomAccessFile(file, "r").use { image ->
-            while (durable < size) {
-                val base = durable
-                val end = minOf(size, base + windowSize)
-                val block = ByteArray(end - base)
-                withContext(Dispatchers.IO) { image.seek(base.toLong()); image.readFully(block) }
-                var sendFrom = base
-                var lastProgress: Long
-                var windowRetries = 0
-                while (durable < end) {
-                    var offset = sendFrom
-                    while (offset < end) {
-                        currentCoroutineContext().ensureActive()
-                        val length = minOf(chunkSize, end - offset)
-                        val payload = block.copyOfRange(offset - base, offset - base + length)
-                        // NO_RESPONSE completion only drains the local Android queue.
-                        write(FirmwareProtocol.chunk(offset, payload, length))
-                        offset += length
-                    }
-                    lastProgress = nowMs()
-                    var resend = false
-                    while (durable < end && !resend) {
-                        val ack = acknowledge()
-                        require(ack.state == 1 && ack.received in durable..end) { "Progression ESP32 incohérente." }
-                        if (ack.received > durable) { durable = ack.received; lastProgress = nowMs() }
-                        if (durable < end) {
-                            if (nowMs() - lastProgress >= 1_500) {
-                                check(++windowRetries <= 3) { "Transfert Bluetooth bloqué : relancez la mise à jour." }
-                                retries++; sendFrom = durable; resend = true
-                            } else pause(25)
-                        }
-                    }
+        var stalledRetries = 0
+        var lastPublished = start
+        while (durable < size) {
+            val limit = minOf(size, durable + FirmwareProtocol.STREAM_WINDOW_BYTES)
+            while (sent < limit) {
+                currentCoroutineContext().ensureActive()
+                val length = minOf(chunkSize, size - sent)
+                if (sent + length > limit) break // do not spend an Android callback on a tiny credit-boundary packet
+                write(FirmwareProtocol.chunk(sent, image.copyOfRange(sent, sent + length), length))
+                sent += length
+            }
+            val ack = acknowledge(durable)
+            require(ack.state == 1 && ack.error == 0 && ack.size == size && ack.received in durable..sent) {
+                if (ack.error != 0) FirmwareProtocol.errorMessage(ack.error) else "Progression ESP32 incohérente."
+            }
+            if (ack.received == durable) {
+                check(++stalledRetries <= 3) { "Transfert Bluetooth bloqué : relancez la mise à jour." }
+                retries++; sent = durable
+            } else {
+                durable = ack.received; stalledRetries = 0
+                val now = nowMs()
+                if (durable == size || now - lastPublished >= 100) {
+                    progress(durable, durable / maxOf(1L, now - start).toDouble())
+                    lastPublished = now
                 }
-                val seconds = maxOf(1L, nowMs() - start) / 1000.0
-                progress(durable, durable / 1000.0 / seconds)
             }
         }
-        return Result(durable, nowMs() - start, retries)
+        Result(durable, nowMs() - start, retries)
     }
 }

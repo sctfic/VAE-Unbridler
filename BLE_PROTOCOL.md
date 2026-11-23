@@ -1,18 +1,18 @@
 # Protocole Bluetooth courant
 
-Firmware matériel V1 **1.0.6**, application **0.4.28**. Un seul protocole est
+Firmware matériel V1 **1.0.10**, application **0.4.32**. Un seul protocole est
 implémenté : aucun décodeur ni transfert pour les anciennes versions.
 Tous les nombres multioctets sont en little-endian.
 
 Service : `a6f50000-9b8a-4d9f-a0da-9e9d873d1101`.
-Android demande un MTU de 247 et exige au moins 55. Les UUID ci-dessous
+Android demande un MTU de 517 et exige au moins 55. Les UUID ci-dessous
 partagent le suffixe `-9b8a-4d9f-a0da-9e9d873d1101`.
 
 | Caractéristique | UUID initial | Accès |
 |---|---|---|
 | Événements roue/état | `a6f50007` | Notification |
 | Configuration | `a6f50002` | Lecture, écriture avec réponse |
-| Contrôle et statut OTA | `a6f50005` | Lecture, écriture avec réponse |
+| Contrôle et statut OTA | `a6f50005` | Lecture, écriture avec réponse, notification |
 | Données OTA | `a6f50006` | Écriture sans réponse |
 
 Les anciennes caractéristiques de télémétrie, diagnostic brut et lecture de
@@ -69,22 +69,43 @@ Les partitions servent aux vérifications internes et ne sont pas affichées.
   entretient le délai de préparation sans ajouter d'impulsion.
 - `06 + u32 taille + SHA-256[32] + u32 code_version` : début du transfert.
   Le téléchargement et le transfert peuvent chevaucher les trois impulsions.
-- Données : `u32 offset + octets[1..240]`, sans réponse ATT individuelle.
+- Données : `u32 offset + octets[1..508]`, sans réponse ATT individuelle.
 - `02` : terminer et vérifier le SHA-256 et l'image.
 - `04` : activer après la fin des trois impulsions, puis redémarrer.
 - `03` : annuler.
 
-L'ancienne commande BEGIN `01` est refusée. La fenêtre d'envoi est bornée à
-3840 octets et 16 paquets. Le tampon circulaire ESP fait 4096 octets ; une tâche
-distincte écrit en flash. `received` confirme exclusivement les octets écrits et
-hachés, jamais ceux en attente. Après chaque fenêtre, Android lit cet offset.
-Sans progression pendant 1,5 s, il reprend depuis l'offset confirmé, au maximum
-trois reprises par fenêtre. Les doublons sont ignorés, un trou ou une saturation
-laisse l'offset inchangé ; un offset hors image annule l'installation.
+La commande BEGIN `06` efface la zone inactive correspondant à la taille annoncée
+avant la phase de transfert. Les impulsions peuvent se poursuivre pendant cette
+préparation. L'ancienne commande `01` est refusée.
 
-Android demande une priorité élevée et le PHY 2M ; l'ESP demande un intervalle
-7,5–15 ms, 251 octets radio et le PHY 2M. Le téléphone choisit les paramètres
-effectifs. La priorité normale revient après l'installation.
+Le crédit maximal est de 16384 octets non encore confirmés, incluant les octets
+en file et ceux en cours d'écriture. Le tampon circulaire fait 16 Kio. La tâche
+flash est réveillée par notification de tâche ; elle regroupe les données en
+blocs de 4096 octets et vide le dernier bloc incomplet à la fin de l'image.
+
+Notifications sur le contrôle OTA, 20 octets :
+
+`u8 format=1 ; u8 état ; u8 erreur ; u8 réservé=0 ; u32 code_cible ;
+u32 received ; u32 taille ; u16 intervalle_1.25ms ; u8 phy_tx ; u8 phy_rx`.
+
+`received` confirme exclusivement les octets écrits en flash et hachés. Le code
+cible et la taille permettent au client d'ignorer les anciennes notifications.
+Le client alimente la fenêtre depuis un fil Bluetooth dédié, en respectant les
+callbacks d'écriture Android. Il n'envoie pas de petit paquet uniquement pour
+remplir les derniers octets de crédit. Les confirmations déjà reçues accordent
+immédiatement le crédit suivant, sans lecture de statut entre blocs.
+
+Après 1,5 seconde sans notification utile, une lecture de statut récupère un ACK
+perdu. En l'absence de progression confirmée, reprise depuis le dernier octet
+persisté, avec trois reprises consécutives au maximum. Les doublons sont ignorés ;
+les trous et la saturation n'avancent pas la confirmation. Un offset hors image
+annule l'installation. FINISH exige une file vide et toutes les écritures terminées.
+
+Android demande la priorité élevée et le PHY 2M. L'ESP demande 7,5 ms, DLE 251 et
+PHY 2M ; trois tentatives sont bornées et espacées d'au moins une seconde. Les
+paramètres réellement obtenus accompagnent les ACK. Ils ne sont pas journalisés.
+La priorité normale revient en fin d'opération. Les durées de préparation,
+transfert confirmé et validation/redémarrage restent distinctes.
 
 Seul un front physique du capteur de roue bloque ou annule la session.
 L'immobilité préalable dure dix secondes. Le GPS et les impulsions de sortie

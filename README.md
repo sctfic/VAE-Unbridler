@@ -1,10 +1,10 @@
-> Android 0.4.28 (code 36), firmware matériel V1 1.0.6 (code OTA 5).
+> Android 0.4.32 (code 40), firmware matériel V1 1.0.10 (code OTA 9).
 > Acquisition/confirmation ESP32 et lissage d’affichage Android sont séparés ;
 > voir [le protocole BLE courant](BLE_PROTOCOL.md).
 
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.28** — auteur **Lopez Alban**.
+Version Android **0.4.32** — auteur **Lopez Alban**.
 
 Les journaux GPS, trajet et Bluetooth ainsi que le panneau DEBUG sont supprimés.
 Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les changements 0.4.23](RELEASE_0.4.23.md).
@@ -108,14 +108,15 @@ Remplacer `COM4` par le port réellement attribué à la carte. Si l'envoi ne d�
 Firmware OTA V1.0 : `firmware-esp32/build/ota-v1/ebike_firmware_hw_v1.bin`.
 Compiler et préparer les fichiers OTA avec `./tools/build-firmware-ota.ps1` depuis ESP-IDF PowerShell.
 
-## OTA — firmware 1.0.6 et application 0.4.28
+## OTA — firmware 1.0.10 et application 0.4.32
 
 Le nom du VAE clignote lorsqu'un firmware plus récent est disponible. La recherche
 est automatique. L'installation demande dix secondes sans mouvement du capteur
 de roue d'origine ; le GPS ne bloque pas l'OTA. La LED alterne orange et violet,
 et trois impulsions à 2 km/h s'exécutent pendant le téléchargement et le transfert.
 
-Un seul protocole rapide est implémenté, sans rétrocompatibilité. Pour le premier
-passage, installer le firmware 1.0.6 par OTA avec l'application actuelle, puis
-installer l'APK 0.4.28. La carte est déjà préparée pour l'OTA ; aucun flash USB
-n'est requis. Voir [OTA.md](OTA.md) et [les changements 1.0.6](RELEASE_ESP32_1.0.6.md).
+Un seul protocole rapide est implémenté, sans rétrocompatibilité. Depuis une
+ancienne application, envoyer d'abord le firmware 1.0.9, puis installer Android
+0.4.32. Le nouveau flux utilise une fenêtre de crédit de 16 Kio, des paquets jusqu'à
+508 octets et les notifications de données persistées, sur un fil Bluetooth dédié.
+Voir [OTA.md](OTA.md) et [les changements 1.0.9](RELEASE_ESP32_1.0.10.md).

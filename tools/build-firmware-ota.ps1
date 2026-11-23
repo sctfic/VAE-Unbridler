@@ -34,6 +34,11 @@ if (Test-Path -LiteralPath $config) {
         $sdkText += "`n$($choice.Value)=y`n"
     }
     $sdkText += "`nCONFIG_ESP_CONSOLE_SECONDARY_NONE=y`nCONFIG_COMPILER_OPTIMIZATION_CHECKS_SILENT=y`n"
+    foreach ($setting in @('CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517', 'CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=32', 'CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=32')) {
+        $option = ($setting -split '=')[0]
+        $sdkText = [regex]::Replace($sdkText, '(?m)^' + $option + '=.*\r?$', '')
+        $sdkText += "`n$setting`n"
+    }
     [IO.File]::WriteAllText($config, $sdkText, [Text.UTF8Encoding]::new($false))
 }
 

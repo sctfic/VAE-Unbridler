@@ -41,7 +41,7 @@ class FirmwareProtocolTest {
 
     @Test fun refusesInvalidHashAndOversizedChunk() {
         assertThrows(IllegalArgumentException::class.java) { FirmwareProtocol.begin(12, "not-a-hash", 2) }
-        assertThrows(IllegalArgumentException::class.java) { FirmwareProtocol.chunk(0, ByteArray(241), 241) }
+        assertThrows(IllegalArgumentException::class.java) { FirmwareProtocol.chunk(0, ByteArray(509), 509) }
         assertThrows(IllegalArgumentException::class.java) { FirmwareProtocol.chunk(-1, byteArrayOf(1), 1) }
     }
     @Test fun decodesWakePreparationAndCompletion() {
@@ -58,5 +58,17 @@ class FirmwareProtocolTest {
         assertTrue(FirmwareProtocol.decode(b)!!.wakeComplete)
         b[1] = 0; b[3] = 7
         assertEquals(5, FirmwareProtocol.PREPARE_WAKE.toInt())
+    }
+    @Test fun durableNotificationsDecodeTransferIdentityAndRadioParameters() {
+        val b = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put(1); put(1); put(0); put(0)
+            putInt(7); putInt(4096); putInt(445056); putShort(6); put(2); put(2)
+        }.array()
+        val p = FirmwareProtocol.decodeProgress(b)!!
+        assertEquals(7, p.targetCode); assertEquals(4096, p.received)
+        assertEquals(6, p.intervalUnits); assertEquals(2, p.txPhy)
+        assertNull(FirmwareProtocol.decodeProgress(b.copyOf(19)))
+        assertNull(FirmwareProtocol.decodeProgress(b.clone().apply { this[0] = 2 }))
+        assertNull(FirmwareProtocol.decodeProgress(b.clone().apply { this[3] = 1 }))
     }
 }

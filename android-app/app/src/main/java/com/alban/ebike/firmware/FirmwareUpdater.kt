@@ -50,6 +50,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
     fun install() {
         if (installing?.isActive == true || !FirmwareUpdateStore.state.value.canInstall) return
         val release = FirmwareUpdateStore.state.value.release ?: return
+        FirmwareUpdateStore.update { it.copy(transferDurationMs = null, transferRetries = 0) }
         phase(UpdatePhase.WAKING, "Contrôle d’immobilité avant la mise à jour…")
         installing = scope.launch {
             checking?.cancel()
@@ -96,14 +97,16 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                 }
                 phase(UpdatePhase.PREPARING, "Contrôle d’immobilité · préparation de l’installation…")
                 requireStationary(info(allowError = true))
+                client.awaitFastFirmwareLink()
                 client.firmwareControl(FirmwareProtocol.begin(release.size, release.sha256, release.versionCode))
                 require(info().state == 1) { "L’ESP32 n’a pas préparé l’installation." }
                 phase(UpdatePhase.TRANSFERRING, "Transfert Bluetooth vers l’ESP32…")
-                FirmwareTransfer(SystemClock::elapsedRealtime).send(file, release.size,
-                    client.firmwareChunkSize, client::firmwareData, { info() }) { durable, speed ->
+                val transfer = FirmwareTransfer(SystemClock::elapsedRealtime).send(file, release.size,
+                    client.firmwareChunkSize, client::firmwareData, { after -> client.awaitFirmwareProgress(release.versionCode, release.size, after) }) { durable, speed ->
                     FirmwareUpdateStore.update { it.copy(progress = durable.toFloat() / release.size,
-                        detail = "Transfert : $durable / ${release.size} octets (${durable * 100 / release.size} %) · %.1f Ko/s".format(speed)) }
+                        detail = firmwareTransferDetail(durable, release.size, speed) + " · " + client.firmwareLinkDescription) }
                 }
+                FirmwareUpdateStore.update { it.copy(transferDurationMs = transfer.durationMs, transferRetries = transfer.retries) }
                 phase(UpdatePhase.VERIFYING, "Vérification SHA-256 sur l’ESP32 et validation de l’image…")
                 client.firmwareControl(byteArrayOf(FirmwareProtocol.FINISH))
                 require(info().state == 2) { "Le firmware n’a pas été validé par l’ESP32." }
@@ -125,7 +128,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                         delay(1_000)
                     }
                 }
-                phase(UpdatePhase.SUCCESS, "Firmware ${release.version} actif et confirmé.", 1f)
+                phase(UpdatePhase.SUCCESS, "Firmware ${release.version} actif et confirmé. Transfert : %.2f s · %d octets.".format(java.util.Locale.FRANCE, transfer.durationMs / 1000.0, transfer.bytes), 1f)
             } catch (e: CancellationException) {
                 withContext(NonCancellable) { abortUnlessActivated(activated) }
                 phase(UpdatePhase.ERROR, "Mise à jour interrompue. Reconnectez l’ESP32 pour vérifier sa version.")

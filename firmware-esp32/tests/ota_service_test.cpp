@@ -17,11 +17,12 @@ esp_ota_img_states_t image_states[2];
 bool metadata_exists, restarted, aborted, flash_fails, other_project, update_led, write_active;
 std::function<void()> during_write;
 std::vector<uint8_t> written;
+size_t erased_length;
 esp_app_desc_t description = {"1.0.2", "ebike_firmware_hw_v1"};
 const uint8_t sha_abc[32] = {0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
     0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad};
 void reset() {
-    clock_us = 20'000'000; running = &partitions[0]; selected = running;
+    erased_length = 0; clock_us = 20'000'000; running = &partitions[0]; selected = running;
     image_states[0] = ESP_OTA_IMG_VALID; image_states[1] = ESP_OTA_IMG_UNDEFINED;
     update_led = false; write_active = false; during_write = {};
     metadata_exists = true; restarted = aborted = flash_fails = other_project = false; written.clear();
@@ -78,7 +79,8 @@ esp_err_t esp_ota_mark_app_valid_cancel_rollback() {
     if (!metadata_exists) return ESP_FAIL;
     image_states[running - partitions] = ESP_OTA_IMG_VALID; return ESP_OK;
 }
-esp_err_t esp_ota_begin(const esp_partition_t* p, size_t, esp_ota_handle_t* handle) {
+esp_err_t esp_ota_begin(const esp_partition_t* p, size_t length, esp_ota_handle_t* handle) {
+    erased_length = length;
     assert(p != running); if (flash_fails) return ESP_FAIL; *handle = 1; return ESP_OK;
 }
 esp_err_t esp_ota_write(esp_ota_handle_t handle, const void* data, size_t size) {
@@ -192,4 +194,23 @@ int main() {
     { Fixture f; auto packet = begin_packet(); f.ota.control(packet.data(), packet.size());
       f.ota.write(chunk, sizeof(chunk)); flash_fails = true; f.ota.process_pending();
       assert(aborted && f.ota.status().error == 3 && f.ota.status().received == 0); }
+    // A full 512-byte ATT write remains unacknowledged until persisted.
+    { Fixture f; auto packet = begin_packet(true, 508); assert(f.ota.control(packet.data(), packet.size()));
+      uint8_t frame[512]{}; assert(f.ota.write(frame, sizeof(frame)));
+      auto p = f.ota.progress(); assert(p.received == 0 && p.size == 508);
+      assert(p.target_code == ebike::kFirmwareVersionCode + 1);
+      f.ota.process_pending(); p = f.ota.progress();
+      assert(p.received == 508 && p.state == 1 && p.error == 0); }
+    // Erase the known image range before sending; batch flash writes at 4 KiB.
+    { Fixture f; auto packet = begin_packet(true, 9000); assert(f.ota.control(packet.data(), packet.size()));
+      assert(erased_length == 9000);
+      uint8_t frame[512]{};
+      for (uint32_t i = 0; i < 8; ++i) {
+          const auto offset = i * 508; std::memcpy(frame, &offset, 4);
+          assert(f.ota.write(frame, sizeof(frame)));
+      }
+      assert(!f.ota.process_pending()); assert(f.ota.progress().received == 0);
+      uint32_t offset = 4064; std::memcpy(frame, &offset, 4);
+      assert(f.ota.write(frame, 36)); assert(f.ota.process_pending());
+      assert(f.ota.progress().received == 4096 && written.size() == 4096); }
 }

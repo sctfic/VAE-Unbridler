@@ -17,6 +17,8 @@ data class FirmwareUpdateUi(
     val progress: Float = 0f,
     val detail: String = "Connexion à l’ESP32 nécessaire pour connaître sa version.",
     val checking: Boolean = false,
+    val transferDurationMs: Long? = null,
+    val transferRetries: Int = 0,
 ) {
     val busy get() = phase in UpdatePhase.WAKING..UpdatePhase.CONFIRMING
     val available get() = info?.let { it.supported && release != null && release.versionCode > it.versionCode } == true

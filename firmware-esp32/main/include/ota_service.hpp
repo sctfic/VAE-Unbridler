@@ -12,6 +12,12 @@
 
 namespace ebike {
 #pragma pack(push, 1)
+struct OtaProgress {
+    uint8_t protocol = 1, state = 0, error = 0, reserved = 0;
+    uint32_t target_code = 0, received = 0, size = 0;
+    uint16_t interval_units = 0;
+    uint8_t tx_phy = 1, rx_phy = 1;
+};
 struct OtaStatus {
     uint8_t protocol = 1;
     uint8_t state = 0;  // 0 idle, 1 receiving, 2 verified, 3 rebooting, 4 error, 5 wake/preparing
@@ -28,18 +34,20 @@ struct OtaStatus {
 };
 #pragma pack(pop)
 static_assert(sizeof(OtaStatus) == 48);
+static_assert(sizeof(OtaProgress) == 20);
 
 class OtaService {
   public:
     OtaService(ConfigStore& config, TelemetryStore& telemetry, OtaWakeOutput& wake);
     void begin();
     OtaStatus status();
+    OtaProgress progress();
     bool control(const uint8_t* data, size_t size);
     bool write(const uint8_t* data, size_t size);
     void tick(bool ble_ready);
     void disconnected();
     bool busy();
-    void process_pending(); // dedicated flash task; never called by NimBLE
+    bool process_pending(); // dedicated flash task; never called by NimBLE
 
   private:
     bool stationary() const;
@@ -58,6 +66,7 @@ class OtaService {
     mbedtls_sha256_context hash_{};
     uint8_t expected_hash_[32]{};
     uint32_t start_edges_ = 0;
+    uint32_t target_code_ = 0;
     int64_t last_activity_us_ = 0;
     int64_t reboot_at_us_ = 0;
     int64_t healthy_since_us_ = 0;

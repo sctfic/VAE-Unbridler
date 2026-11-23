@@ -9,10 +9,15 @@ L'applicationId Android et la configuration de signature release sont conservés
 La carte actuelle possède déjà le bootloader et les partitions OTA.
 Les mises à jour passent par OTA ; un flash USB nécessite une demande explicite.
 
-Pour le passage vers le protocole unique de la 1.0.6, envoyer d'abord le firmware
-avec l'application actuelle, puis installer l'APK 0.4.28. Les deux logiciels
-utilisent ensuite uniquement [le protocole courant](BLE_PROTOCOL.md).
-Le premier transfert garde le débit de l'ancien récepteur.
+Depuis une ancienne application, envoyer d'abord le firmware 1.0.9, puis
+installer Android 0.4.32. Le nouveau client attend les notifications de crédit du
+nouveau récepteur. Aucun repli de protocole n'est ajouté. Les essais temporaires
+de transition ne font pas partie de l'application normale.
+
+Le transfert utilise des paquets jusqu'à 508 octets, une fenêtre continue de
+16 Kio et les confirmations des écritures en flash. La préparation efface la
+zone inactive avant l'envoi. Le temps de transfert affiché exclut cette
+préparation, FINISH, les impulsions et le redémarrage. Voir [BLE_PROTOCOL.md](BLE_PROTOCOL.md).
 
 1. La recherche GitHub est automatique à la connexion, puis toutes les heures.
 2. Une nouvelle version fait clignoter le nom du VAE. Toucher ce nom pour ouvrir
@@ -69,7 +74,7 @@ Depuis ESP-IDF PowerShell, dans une copie propre du commit à publier :
 # Compilation et empaquetage, sans installation.
 ./tools/build-firmware-ota.ps1
 # Préparation d'un brouillon, après autorisation de publication.
-./tools/publish-firmware-release.ps1 -Notes RELEASE_ESP32_1.0.6.md
+./tools/publish-firmware-release.ps1 -Notes RELEASE_ESP32_1.0.9.md
 ```
 
 Le script vérifie puis prépare `ebike-esp32s3-hw-v1.bin` (application seule) et

@@ -19,8 +19,8 @@ android {
         applicationId = "com.alban.ebike"
         minSdk = 29
         targetSdk = 35
-        versionCode = 37
-        versionName = "0.4.29"
+        versionCode = 40
+        versionName = "0.4.32"
     }
 
     buildFeatures { compose = true; buildConfig = true }

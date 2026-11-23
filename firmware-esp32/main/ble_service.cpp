@@ -62,7 +62,7 @@ void BleService::begin() {
                                                            this, 4, nullptr, 0);
     configASSERT(notifier_started == pdPASS);
     const auto flash_started = xTaskCreatePinnedToCore(&BleService::flash_task, "ota_flash", 8192,
-                                                       this, 3, nullptr, 0);
+                                                       this, 3, &flash_task_handle_, 0);
     configASSERT(flash_started == pdPASS);
 }
 
@@ -75,6 +75,7 @@ void BleService::notify_task(void* context) {
     auto* self = static_cast<BleService*>(context);
     while (true) {
         self->ota_.tick(self->ble_ready_);
+        if (self->flash_task_handle_) xTaskNotifyGive(self->flash_task_handle_);
         self->update_link_priority();
         self->send_telemetry();
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -84,25 +85,43 @@ void BleService::notify_task(void* context) {
 void BleService::flash_task(void* context) {
     auto* self = static_cast<BleService*>(context);
     while (true) {
-        self->ota_.process_pending();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        while (self->ota_.process_pending()) self->send_progress();
+        self->send_progress();
+    }
+}
+
+void BleService::send_progress() {
+    if (!progress_subscribed_ || connection_handle_ == kNoConnection) return;
+    auto p = ota_.progress();
+    p.interval_units = interval_units_; p.tx_phy = tx_phy_; p.rx_phy = rx_phy_;
+    const auto epoch = progress_epoch_.load();
+    if (epoch == ack_epoch_ && std::memcmp(&p, &last_progress_, sizeof(p)) == 0) return;
+    auto* buffer = ble_hs_mbuf_from_flat(&p, sizeof(p));
+    if (buffer && ble_gatts_notify_custom(connection_handle_, ota_control_handle_, buffer) == 0) {
+        last_progress_ = p; ack_epoch_ = epoch;
     }
 }
 
 void BleService::update_link_priority() {
     const auto connection = connection_handle_;
-    if (connection == kNoConnection) { priority_active_ = false; return; }
+    if (connection == kNoConnection) { priority_active_ = false; priority_attempts_ = 0; return; }
     const bool fast = ota_.busy();
-    if (fast == priority_active_) return;
-    priority_active_ = fast;
+    if (fast != priority_active_) {
+        priority_active_ = fast; priority_attempts_ = 0; last_priority_request_us_ = 0;
+    }
+    const auto now = esp_timer_get_time();
+    if (priority_attempts_ >= 3 || (priority_attempts_ && now - last_priority_request_us_ < 1'000'000)) return;
+    if (priority_attempts_ && (!fast || (interval_units_ == 6 && tx_phy_ == 2 && rx_phy_ == 2))) return;
+    ++priority_attempts_; last_priority_request_us_ = now;
     ble_gap_upd_params params{};
-    params.itvl_min = fast ? 6 : 24;  // 7.5-15 ms OTA; 30-50 ms otherwise
-    params.itvl_max = fast ? 12 : 40;
+    params.itvl_min = fast ? 6 : 24;
+    params.itvl_max = fast ? 6 : 40;
     params.latency = 0; params.supervision_timeout = 400;
     ble_gap_update_params(connection, &params);
     if (fast) {
         ble_gap_set_data_len(connection, 251, 2120);
-        ble_gap_set_prefered_le_phy(connection, 2, 2, 0); // LE 2M; peer may retain 1M
+        ble_gap_set_prefered_le_phy(connection, 2, 2, 0);
     }
 }
 
@@ -130,7 +149,7 @@ void BleService::register_gatt() {
     characteristics[1].val_handle = &config_handle_;
     characteristics[2].uuid = &kOtaControlUuid.u;
     characteristics[2].access_cb = &BleService::gatt_access;
-    characteristics[2].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE;
+    characteristics[2].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY;
     characteristics[2].val_handle = &ota_control_handle_;
     characteristics[3].uuid = &kOtaDataUuid.u;
     characteristics[3].access_cb = &BleService::gatt_access;
@@ -193,16 +212,34 @@ int BleService::gap_event(ble_gap_event* event, void* context) {
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
             self->events_subscribed_ = false;
+            self->progress_subscribed_ = false;
+            self->interval_units_ = 0; self->tx_phy_ = 1; self->rx_phy_ = 1;
             self->connection_handle_ = kNoConnection;
             self->ota_.disconnected();
             status_led::connected(false);
 
             self->start_advertising();
             return 0;
+        case BLE_GAP_EVENT_CONN_UPDATE:
+            if (event->type == BLE_GAP_EVENT_CONN_UPDATE && event->conn_update.status == 0) {
+                ble_gap_conn_desc desc{};
+                if (ble_gap_conn_find(event->conn_update.conn_handle, &desc) == 0) self->interval_units_ = desc.conn_itvl;
+            }
+            return 0;
+        case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+            if (event->phy_updated.status == 0) {
+                self->tx_phy_ = event->phy_updated.tx_phy; self->rx_phy_ = event->phy_updated.rx_phy;
+            }
+            return 0;
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.attr_handle == self->events_handle_) {
                 if (event->subscribe.cur_notify) ++self->stream_epoch_;
                 self->events_subscribed_ = event->subscribe.cur_notify != 0;
+            }
+            if (event->subscribe.attr_handle == self->ota_control_handle_) {
+                self->progress_subscribed_ = event->subscribe.cur_notify != 0;
+                ++self->progress_epoch_;
+                if (self->flash_task_handle_) xTaskNotifyGive(self->flash_task_handle_);
             }
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -231,12 +268,13 @@ int BleService::gatt_access(uint16_t, uint16_t attribute_handle, ble_gatt_access
     }
     if ((attribute_handle == instance_->ota_control_handle_ || attribute_handle == instance_->ota_data_handle_) &&
         context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        uint8_t buffer[244];
+        uint8_t buffer[512];
         const size_t size = OS_MBUF_PKTLEN(context->om);
         if (!size || size > sizeof(buffer) || os_mbuf_copydata(context->om, 0, size, buffer) != 0)
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         const bool ok = attribute_handle == instance_->ota_control_handle_
             ? instance_->ota_.control(buffer, size) : instance_->ota_.write(buffer, size);
+        if (instance_->flash_task_handle_) xTaskNotifyGive(instance_->flash_task_handle_);
         return ok ? 0 : BLE_ATT_ERR_VALUE_NOT_ALLOWED;
     }
     return BLE_ATT_ERR_UNLIKELY;

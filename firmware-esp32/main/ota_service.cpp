@@ -60,6 +60,14 @@ OtaStatus OtaService::status() {
     return status_;
 }
 
+OtaProgress OtaService::progress() {
+    Guard guard(mutex_);
+    OtaProgress p{};
+    p.state = status_.state; p.error = status_.error;
+    p.target_code = target_code_; p.received = status_.received; p.size = status_.size;
+    return p;
+}
+
 bool OtaService::active() const { return (status_.state >= 1 && status_.state <= 3) || status_.state == 5; }
 
 bool OtaService::busy() {
@@ -126,12 +134,13 @@ bool OtaService::control(const uint8_t* data, size_t length) {
             fail(1); return false;
         }
         stream_.reset();
+        target_code_ = u32(data + 37);
         status_.size = size;
         status_.received = 0;
         status_.error = 0;
         std::memcpy(expected_hash_, data + 5, 32);
         if (mbedtls_sha256_starts(&hash_, 0) != 0 ||
-            esp_ota_begin(target_, OTA_WITH_SEQUENTIAL_WRITES, &handle_) != ESP_OK) {
+            esp_ota_begin(target_, size, &handle_) != ESP_OK) {
             fail(3); return false;
         }
         status_.state = 1;
@@ -175,7 +184,7 @@ bool OtaService::write(const uint8_t* data, size_t length) {
     Guard guard(mutex_);
     if (status_.state != 1) return false;
     if (!safe_session()) { fail(1); return false; }
-    if (length <= 4 || length > 244) { fail(2); return false; }
+    if (length <= 4 || length > 512) { fail(2); return false; }
     const auto result = stream_.append(u32(data), data + 4, length - 4, status_.received, status_.size);
     if (result == OtaStreamBuffer::Result::invalid) { fail(2); return false; }
     if (result == OtaStreamBuffer::Result::accepted || result == OtaStreamBuffer::Result::duplicate) {
@@ -185,14 +194,16 @@ bool OtaService::write(const uint8_t* data, size_t length) {
     return false;
 }
 
-void OtaService::process_pending() {
+bool OtaService::process_pending() {
     uint8_t block[4096];
     size_t length;
     esp_ota_handle_t handle;
     {
         Guard guard(mutex_);
-        if (status_.state != 1 || writing_ || !stream_.pending()) return;
-        if (!safe_session()) { fail(1); return; }
+        if (status_.state != 1 || writing_ || !stream_.pending()) return false;
+        if (!safe_session()) { fail(1); return true; }
+        // Keep radio reception running while full flash blocks are collected.
+        if (stream_.pending() < sizeof(block) && stream_.accepted() != status_.size) return false;
         length = stream_.drain(block, sizeof(block));
         handle = handle_; writing_ = true;
     }
@@ -202,12 +213,13 @@ void OtaService::process_pending() {
     writing_ = false;
     if (status_.state != 1) {
         if (handle_) { esp_ota_abort(handle_); handle_ = 0; }
-        return;
+        return true;
     }
-    if (!safe_session()) { fail(1); return; }
-    if (result != ESP_OK || mbedtls_sha256_update(&hash_, block, length) != 0) { fail(3); return; }
+    if (!safe_session()) { fail(1); return true; }
+    if (result != ESP_OK || mbedtls_sha256_update(&hash_, block, length) != 0) { fail(3); return true; }
     status_.received += static_cast<uint32_t>(length); // ACK means persisted and hashed, never merely queued
     last_activity_us_ = esp_timer_get_time();
+    return true;
 }
 
 void OtaService::disconnected() {

@@ -143,7 +143,6 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
                 val radius = max(550.0, offsets.maxOf { max(abs(it.east - east), abs(it.north - north)) } * 2.3 + 150)
                 terrainModel.requestMovingNeighbours(position.latitude, position.longitude, currentLayers)
                 terrainModel.request(center.first, center.second, radius * 1.35, position.latitude, position.longitude)
-                terrainModel.requestMovingNeighbours(position.latitude, position.longitude, currentLayers)
                 terrainModel.requestParcels(position.latitude, position.longitude, currentLayers["parcels"] == true)
             }
             delay(5000)
