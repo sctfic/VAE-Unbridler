@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.alban.ebike.MainActivity
 
@@ -27,7 +26,6 @@ object BikeArrivalNotification {
         })
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED) {
-            Log.w("EBikeAutoOpen", "Arrival notification requires notification permission")
             return
         }
         val open = PendingIntent.getActivity(context, NOTIFICATION_ID,
@@ -47,7 +45,6 @@ object BikeArrivalNotification {
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .build())
-        Log.i("EBikeAutoOpen", "Arrival notification posted for locked/inactive screen")
     }
 
     fun dismiss(context: Context) {

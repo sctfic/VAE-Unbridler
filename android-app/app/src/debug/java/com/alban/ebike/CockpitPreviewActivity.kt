@@ -26,7 +26,8 @@ class CockpitPreviewActivity : ComponentActivity() {
         }
         setContent {
             var speedMode by remember { mutableStateOf(intent.getBooleanExtra("speed", false)) }
-            val state = RideUiState(bluetoothReady = true, modeSupported = true, speedMode = speedMode,
+            val state = RideUiState(bluetoothReady = true, speedMode = speedMode,
+                speedPresentation = DisplaySpeeds(28.6f, "GPS", 28.6f, 28.4f, if (speedMode) 22.84f else 28.4f),
                 gpsSpeedValid = true, gpsSpeedKmh = 28.6f, wheelSpeedKmh = 28.4f,
                 motorSpeedKmh = if (speedMode) 22.84f else 28.4f, altitudeM = track.last().altitudeM,
                 inclinePercent = track.last().gradePercent ?: 0f, inclineValid = true,

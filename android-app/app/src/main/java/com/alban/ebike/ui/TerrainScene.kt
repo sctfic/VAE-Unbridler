@@ -37,7 +37,7 @@ import kotlin.math.*
 @Composable
 internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteMetric,
     window: SceneWindow, onWindowChange: (SceneWindow) -> Unit, onReset: () -> Unit,
-    debugVisible: Boolean, onDebugChange: (Boolean) -> Unit, selectedPoint: com.alban.ebike.model.TrackPoint? = null, profileDragging: Boolean = false,
+    selectedPoint: com.alban.ebike.model.TrackPoint? = null, profileDragging: Boolean = false,
     onSceneTouch: (Boolean) -> Unit = {}, onStatus: (String) -> Unit) {
     val context = LocalContext.current
     val terrainModel = remember(context) {
@@ -54,9 +54,6 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     var radiusKm by rememberSaveable { mutableFloatStateOf(preferences.getFloat("offline-radius", 5f)) }
     var direction by rememberSaveable { mutableIntStateOf(preferences.getInt("offline-direction", 0)) }
     LaunchedEffect(radiusKm, direction) { preferences.edit().putFloat("offline-radius", radiusKm).putInt("offline-direction", direction).apply() }
-    val diagnostics = terrainModel.diagnostics
-    val steps by diagnostics.steps.collectAsState()
-    var debugNow by remember { mutableLongStateOf(LoadDiagnostics.now()) }
     val geometryCache = terrainModel.geometryCache
     var optionsOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(optionsOpen, optionsTab) {
@@ -84,10 +81,6 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
         TrackWindow.select(TrackWindow.withCurrent(state.track, state.position), window)
     }
     SideEffect {
-        view.onFrameReady = { milliseconds ->
-            diagnostics.report("GPU", "Buffers + commandes de rendu : ${milliseconds} ms")
-            diagnostics.end("GPU")
-        }
         view.onInteractionChanged = onSceneTouch
         view.inspectTrack(profileDragging || selectedPoint != null)
         view.framing(window, !state.resting)
@@ -140,10 +133,8 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             val position = current.position ?: current.track.lastOrNull()
             if (position == null) {
                 report("EN ATTENTE DE POSITION · GRILLE")
-                if (steps["GPS"] == null) diagnostics.begin("GPS", "Attente de position GPS")
             }
             else {
-                diagnostics.report("GPS", "Position disponible"); diagnostics.end("GPS")
                 val points = TrackWindow.select(TrackWindow.withCurrent(current.track, current.position), window).ifEmpty { listOf(position) }
                 val offsets = points.map { GeoFrame.local(it.latitude, it.longitude, position.latitude, position.longitude) }
                 val east = (offsets.minOf { it.east } + offsets.maxOf { it.east }) / 2
@@ -160,40 +151,30 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
     }
     LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        while (isActive) { cameraPose = view.cameraPose(); selectionMarker = view.selectedMarker(); parcelLabels = view.parcelLabels(); debugNow = LoadDiagnostics.now(); delay(33) }
+        while (isActive) { cameraPose = view.cameraPose(); selectionMarker = view.selectedMarker(); parcelLabels = view.parcelLabels(); delay(33) }
     }
     LaunchedEffect(active, mapArea, terrain, detail, window) {
         if (!active) return@LaunchedEffect
-        diagnostics.begin("OBJ", "Projection objets · recherche cache")
         mapMesh = withContext(Dispatchers.IO) {
             val area = mapArea; val grid = terrain
             val key = if (area != null && grid?.real == true) GeometryCache.key(grid, detail, area) + "-surface-v3" else null
             val cached = key?.let { geometryCache.read(it) }?.takeIf { it.first.size == 4 }
             if (cached != null) {
-                diagnostics.report("OBJ", "Objets projetés · cache ${cached.second}")
                 MapFeatureMesh(cached.first[0], cached.first[1], cached.first[2], cached.first[3])
             } else {
-                diagnostics.report("OBJ", if (key == null) "En attente relief / OSM" else "Projection routes / eau / bâtiments")
                 val projectionContext = currentCoroutineContext()
                 MapFeatureProjection.build(area, grid, detail) { projectionContext.ensureActive() }.also {
                     if (key != null) geometryCache.write(key, listOf(it.roads, it.water, it.paths, it.buildings))
                 }
             }
         }
-        val summary = "MAP roads=${mapMesh.roads.size / 6} water=${mapMesh.water.size / 6} paths=${mapMesh.paths.size / 6} buildings=${mapMesh.buildings.size / 6}"
-        com.alban.ebike.location.GpsDebugLog.record(summary)
-        diagnostics.report("OBJ", summary)
-        diagnostics.end("OBJ")
     }
     LaunchedEffect(active, selectedTrack, window, state.pauses, terrain, state.speedMode, metric, detail, mapMesh, layers, parcelMesh) {
         if (!active) return@LaunchedEffect
-        diagnostics.begin("3D", "Préparation scène")
         heading = GeoFrame.heading(selectedTrack, heading)
         val next = withContext(Dispatchers.IO) { RideSceneMesh.build(selectedTrack, terrain, state.speedMode, heading, metric, detail,
-            geometryCache, pauses = state.pauses, window = window) { diagnostics.report("3D", it) } }
-        diagnostics.end("3D")
+            geometryCache, pauses = state.pauses, window = window) {} }
         fun visible(key: String, data: FloatArray) = if (layers[key] == true) data else floatArrayOf()
-        diagnostics.begin("GPU", "Attente envoi au rendu")
         view.submit(next.copy(contours = visible("contours", next.contours),
             roads = visible("roads", mapMesh.roads), waterways = visible("water", mapMesh.water),
             paths = visible("paths", mapMesh.paths), buildings = visible("buildings", mapMesh.buildings),
@@ -226,16 +207,6 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
             selectionMarker?.let { point ->
                 drawSelectionMarker(Offset(((point.x + 1) * size.width / 2).toFloat(),
                     ((1 - point.y) * size.height / 2).toFloat()))
-            }
-        }
-        if (debugVisible) Column(Modifier.align(Alignment.CenterStart).padding(start = 10.dp)
-            .background(Color(0xB3050A11)).padding(5.dp)) {
-            Text("DEBUG CHARGEMENT 3D", fontSize = 9.sp, color = Color(0xFF69E3F5))
-            listOf("GPS", "ALT", "OSM", "CAD", "OBJ", "3D", "GPU").forEach { lane ->
-                val step = steps[lane]
-                val duration = step?.let { ((it.end ?: debugNow) - it.start).coerceAtLeast(0) / 1000.0 }
-                Text("$lane · ${step?.message ?: "en attente"}" + (duration?.let { " · %.2f s".format(it) } ?: ""),
-                    fontSize = 8.sp, lineHeight = 10.sp, color = Color(0xFFB5CED8), maxLines = 2)
             }
         }
     }
@@ -284,12 +255,6 @@ internal fun TerrainScene(state: RideUiState, modifier: Modifier, metric: RouteM
                         Checkbox(checked = layers[key] == true, onCheckedChange = null)
                         Text(label, Modifier.padding(start = 8.dp))
                     }
-                }
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
-                    value = debugVisible, role = Role.Checkbox, onValueChange = onDebugChange),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = debugVisible, onCheckedChange = null)
-                    Text("Diagnostic GPS et chargement 3D", Modifier.padding(start = 8.dp))
                 }
                 Text("Chemins et contours de bâtiments selon les données disponibles et le niveau de zoom.")
                 }

@@ -1,5 +1,6 @@
 package com.alban.ebike.firmware
 
+import com.alban.ebike.model.RideUiState
 import com.alban.ebike.model.FirmwareInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,7 @@ data class FirmwareUpdateUi(
     val busy get() = phase in UpdatePhase.WAKING..UpdatePhase.CONFIRMING
     val available get() = info?.let { it.supported && release != null && release.versionCode > it.versionCode } == true
     val canInstall get() = available && !busy && info?.stationary == true && info.bootConfirmed
+    fun canInstallFor(ride: RideUiState) = canInstall && ride.bluetoothReady
 }
 
 object FirmwareUpdateStore {

@@ -55,8 +55,8 @@ OtaStatus OtaService::status() {
     esp_ota_img_states_t image_state = ESP_OTA_IMG_UNDEFINED;
     const esp_err_t result = esp_ota_get_state_partition(esp_ota_get_running_partition(), &image_state);
     status_.flags = (target_ ? 1 : 0) | (stationary() ? 2 : 0) |
-                    ((result == ESP_OK && image_state == ESP_OTA_IMG_VALID) ? 4 : 0) | 8 |
-                    ((status_.state == 5 && wake_.ota_wake_complete()) ? 16 : 0);
+                    ((result == ESP_OK && image_state == ESP_OTA_IMG_VALID) ? 4 : 0) | 8 | 32 |
+                    ((wake_.ota_wake_complete()) ? 16 : 0);
     return status_;
 }
 
@@ -70,7 +70,9 @@ bool OtaService::busy() {
 void OtaService::fail(uint8_t error) {
     wake_.cancel_ota_wake();
     status_led::updating(false);
-    if (handle_) { esp_ota_abort(handle_); handle_ = 0; }
+    // The flash worker owns an in-flight write. It aborts after that call returns.
+    if (handle_ && !writing_) { esp_ota_abort(handle_); handle_ = 0; }
+    stream_.reset();
     if (status_.state == 3) {
         // Activation was selected but motion was detected before restart.
         ESP_ERROR_CHECK(esp_ota_set_boot_partition(esp_ota_get_running_partition()));
@@ -87,6 +89,7 @@ bool OtaService::control(const uint8_t* data, size_t length) {
     Guard guard(mutex_);
     if (!length) return false;
     if (data[0] == 3 && length == 1) { fail(6); return true; }
+    if (writing_) return false; // cannot reuse a handle while cancellation drains a write
     if (data[0] == 5 && length == 1) {
         if (status_.state == 5) {
             if (!safe_session()) { fail(1); return false; }
@@ -106,9 +109,9 @@ bool OtaService::control(const uint8_t* data, size_t length) {
         status_led::updating(true);
         return true;
     }
-    if (data[0] == 1 && length == 41 && (status_.state == 0 || status_.state == 4 || status_.state == 5)) {
+    if (data[0] == 6 && length == 41 && (status_.state == 0 || status_.state == 4 || status_.state == 5)) {
         const bool prepared = status_.state == 5;
-        if (prepared && (!safe_session() || !wake_.ota_wake_complete())) { fail(1); return false; }
+        if (prepared && !safe_session()) { fail(1); return false; }
         esp_ota_img_states_t state;
         if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) != ESP_OK ||
             state != ESP_OTA_IMG_VALID) { fail(3); return false; }
@@ -119,6 +122,10 @@ bool OtaService::control(const uint8_t* data, size_t length) {
             fail(2); return false;
         }
         config_.set_speed_enabled(false);
+        if (!prepared && !wake_.request_ota_wake(config_.snapshot().circumference_mm)) {
+            fail(1); return false;
+        }
+        stream_.reset();
         status_.size = size;
         status_.received = 0;
         status_.error = 0;
@@ -136,7 +143,7 @@ bool OtaService::control(const uint8_t* data, size_t length) {
     if (!safe_session() && active()) { fail(1); return false; }
     if (data[0] == 2 && length == 1 && status_.state == 1) {
         uint8_t actual[32]{};
-        if (status_.received != status_.size) { fail(2); return false; }
+        if (writing_ || stream_.pending() || status_.received != status_.size) { fail(2); return false; }
         if (mbedtls_sha256_finish(&hash_, actual) != 0 || std::memcmp(actual, expected_hash_, 32) != 0) {
             fail(4); return false;
         }
@@ -153,6 +160,8 @@ bool OtaService::control(const uint8_t* data, size_t length) {
         return true;
     }
     if (data[0] == 4 && length == 1 && status_.state == 2) {
+        // Let a finite wake train finish during the update, never add a fourth pulse.
+        if (!wake_.ota_wake_complete()) return false;
         if (esp_ota_set_boot_partition(target_) != ESP_OK) { fail(3); return false; }
         status_.state = 3;
         reboot_at_us_ = esp_timer_get_time() + 1'500'000;
@@ -166,15 +175,39 @@ bool OtaService::write(const uint8_t* data, size_t length) {
     Guard guard(mutex_);
     if (status_.state != 1) return false;
     if (!safe_session()) { fail(1); return false; }
-    if (length <= 4 || length > 244 || !ota_chunk_valid(u32(data), status_.received, status_.size, static_cast<uint32_t>(length - 4))) {
-        fail(2); return false;
+    if (length <= 4 || length > 244) { fail(2); return false; }
+    const auto result = stream_.append(u32(data), data + 4, length - 4, status_.received, status_.size);
+    if (result == OtaStreamBuffer::Result::invalid) { fail(2); return false; }
+    if (result == OtaStreamBuffer::Result::accepted || result == OtaStreamBuffer::Result::duplicate) {
+        last_activity_us_ = esp_timer_get_time(); return true;
     }
-    if (esp_ota_write(handle_, data + 4, length - 4) != ESP_OK ||
-        mbedtls_sha256_update(&hash_, data + 4, length - 4) != 0) { fail(3); return false; }
-    status_.received += static_cast<uint32_t>(length - 4);
+    // Gaps/backpressure keep the durable offset unchanged; retry from its ACK.
+    return false;
+}
+
+void OtaService::process_pending() {
+    uint8_t block[4096];
+    size_t length;
+    esp_ota_handle_t handle;
+    {
+        Guard guard(mutex_);
+        if (status_.state != 1 || writing_ || !stream_.pending()) return;
+        if (!safe_session()) { fail(1); return; }
+        length = stream_.drain(block, sizeof(block));
+        handle = handle_; writing_ = true;
+    }
+    // Receive callbacks can enqueue the rest of the window while flash is busy.
+    const esp_err_t result = esp_ota_write(handle, block, length);
+    Guard guard(mutex_);
+    writing_ = false;
+    if (status_.state != 1) {
+        if (handle_) { esp_ota_abort(handle_); handle_ = 0; }
+        return;
+    }
+    if (!safe_session()) { fail(1); return; }
+    if (result != ESP_OK || mbedtls_sha256_update(&hash_, block, length) != 0) { fail(3); return; }
+    status_.received += static_cast<uint32_t>(length); // ACK means persisted and hashed, never merely queued
     last_activity_us_ = esp_timer_get_time();
-    if (!safe_session()) { fail(1); return false; }
-    return true;
 }
 
 void OtaService::disconnected() {

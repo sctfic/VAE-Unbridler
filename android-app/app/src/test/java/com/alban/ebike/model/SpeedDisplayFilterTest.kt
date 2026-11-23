@@ -35,6 +35,9 @@ class SpeedDisplayFilterTest {
     @Test fun wheelWinsOverGpsZeroAndDisconnectResetsItsWindow() {
         val model = SpeedDisplayModel()
         val state = RideUiState(gpsSpeedValid = true, gpsSpeedKmh = 0f, gpsSpeedTimeMs = 1000,
+            eventTelemetry = BikeTelemetry(session = 42, eventType = 2, wheelMoving = true,
+                wheelIntervalUs = 424800, motorIntervalUs = 424800, wheelSpeedKmh = 20f, motorSpeedKmh = 20f,
+                eventTimeUs = 1_000_000, wheelTimeUs = 1_000_000, mappedEventMs = 1000, mappedWheelMs = 1000),
             bluetoothReady = true, wheelSpeedKmh = 20f, motorSpeedKmh = 20f, wheelTelemetryTimeMs = 1000)
         val display = model.update(state, 1000)
         assertEquals("ROUE", display.source)
@@ -45,7 +48,7 @@ class SpeedDisplayFilterTest {
         assertNull(disconnected.wheel)
         assertNull(model.update(state.copy(bluetoothReady = false), 5001).main)
     }
-    @Test fun validatesTelemetryPeriodsAndDoesNotShowBogusMotorPairedWithBadWheel() {
+    @Test fun validatesWheelAndCommandedMotorPeriodsIndependently() {
         val standard = BikeTelemetry(wheelSpeedKmh = 30f, motorSpeedKmh = 30f,
             wheelIntervalUs = 283200, motorIntervalUs = 283200)
         assertTrue(TelemetryDisplayValidation.wheel(standard))
@@ -54,7 +57,7 @@ class SpeedDisplayFilterTest {
         val spike = standard.copy(wheelSpeedKmh = 181.44f, motorSpeedKmh = 38.14f,
             wheelIntervalUs = 46824, motorIntervalUs = 222758, simulatedOutput = true)
         assertFalse(TelemetryDisplayValidation.wheel(spike))
-        assertFalse(TelemetryDisplayValidation.motor(spike))
+        assertTrue(TelemetryDisplayValidation.motor(spike))
         assertTrue(TelemetryDisplayValidation.motor(standard.copy(simulatedOutput = true,
             motorSpeedKmh = 23f, motorIntervalUs = 369391)))
     }

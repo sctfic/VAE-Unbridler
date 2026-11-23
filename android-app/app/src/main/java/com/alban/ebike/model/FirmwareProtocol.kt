@@ -8,7 +8,6 @@ data class FirmwareInfo(
     val state: Int, val error: Int, val flags: Int, val received: Int, val size: Int,
     val versionCode: Int, val slot: Int, val targetSlot: Int, val capacity: Int, val version: String, val hardwareRevision: Int = 0,
 ) {
-    val wakeSupported get() = flags and 8 != 0
     val wakeComplete get() = flags and 16 != 0
     val stationary get() = flags and 2 != 0
     val bootConfirmed get() = flags and 4 != 0
@@ -23,6 +22,9 @@ object FirmwareProtocol {
     const val ABORT: Byte = 3
     const val ACTIVATE: Byte = 4
     const val PREPARE_WAKE: Byte = 5
+    const val BEGIN_FAST: Byte = 6
+    const val STREAM_WINDOW_BYTES = 3840
+    const val STREAM_WINDOW_PACKETS = 16
 
     fun decode(bytes: ByteArray): FirmwareInfo? {
         if (bytes.size != 48 || bytes[0].toInt() != 1) return null
@@ -46,7 +48,7 @@ object FirmwareProtocol {
     fun begin(size: Int, sha256: String, versionCode: Int): ByteArray {
         require(size > 0 && versionCode > 0 && sha256.matches(Regex("[a-fA-F0-9]{64}")))
         return ByteBuffer.allocate(41).order(ByteOrder.LITTLE_ENDIAN).apply {
-            put(1); putInt(size)
+            put(BEGIN_FAST); putInt(size)
             sha256.chunked(2).forEach { put(it.toInt(16).toByte()) }
             putInt(versionCode)
         }.array()

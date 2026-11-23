@@ -2,7 +2,6 @@ package com.alban.ebike.terrain
 
 import android.content.Context
 import android.os.SystemClock
-import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -22,7 +21,6 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
         val size: Int get() = kotlin.math.sqrt(heights.size.toDouble()).toInt()
     }
     private val cache = File(context.filesDir, "terrain-ign-rge1m-v1")
-    private val legacyCache = File(context.cacheDir, "terrain-ign-rge1m-v1")
     private var retryAt = 0L
     private val emptyUntil = LinkedHashMap<String, Long>()
 
@@ -34,7 +32,6 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
         val previous = findCoveringCache(lat, lon, halfSize)
         previous?.takeUnless { IgnElevationPolicy.adequateResolution(it.halfSizeM, it.size, halfSize, size) }?.let(preview)
         previous?.takeIf { IgnElevationPolicy.adequateResolution(it.halfSizeM, it.size, halfSize, size) }?.let {
-            Log.i("EBikeTerrain", "IGN cache reused without network")
             progress("IGN · cache disque, aucun réseau")
             return it
         }
@@ -45,7 +42,7 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
             .joinToString("") { "%02x".format(it) }
         val file = File(cache, "$key.bin")
         val stored = runCatching {
-            val existing = if (file.exists()) file else File(legacyCache, "$key.bin")
+            val existing = file
             check(existing.length() == coordinates.size * 4L)
             DataInputStream(existing.inputStream().buffered()).use { input ->
                 FloatArray(coordinates.size) { IgnElevationPolicy.elevation(input.readFloat().toDouble()) }
@@ -82,7 +79,6 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
             }
             val valid = heights.count { it.isFinite() }
             progress("IGN · décodé $valid/${heights.size}, sauvegarde")
-            Log.i("EBikeTerrain", "IGN RGE ALTI 1m: $valid/${heights.size} samples")
             if (valid == 0) {
                 if (emptyUntil.size >= 32) emptyUntil.clear()
                 emptyUntil[key] = now + 300_000
@@ -95,19 +91,18 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
                 check(partial.renameTo(file))
                 writeMetadata(key, lat, lon, halfSize, size)
                 prune()
-            }.onFailure { Log.w("EBikeTerrain", "IGN cache write failed", it) }
+            }
             return Result(lat, lon, halfSize, heights, false)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             retryAt = SystemClock.elapsedRealtime() + 120_000
-            Log.w("EBikeTerrain", "IGN unavailable; cached/fallback terrain", error)
             progress("IGN · échec réseau, cache / repli")
             return previous
         }
     }
 
     fun findCoveringCache(lat: Double, lon: Double, halfSize: Double): Result? {
-        val metadata = listOf(cache, legacyCache).flatMap { dir ->
+        val metadata = listOf(cache).flatMap { dir ->
             dir.listFiles { file -> file.extension == "json" }.orEmpty().toList()
         }.sortedByDescending { it.lastModified() }
         var best: Result? = null
@@ -141,7 +136,7 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
             val target = File(cache, "$key.json")
             if (!target.exists()) target.writeText(JSONObject().put("lat", lat).put("lon", lon)
                 .put("halfSizeM", halfSize).put("size", size).toString())
-        }.onFailure { Log.w("EBikeTerrain", "IGN cache metadata write failed", it) }
+        }
     }
 
     private fun request(body: String): String {
@@ -166,7 +161,7 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
             }
         } finally { connection.disconnect() }
     }
-    /** One independently persisted tile, with the same global quota as legacy requests. */
+    /** One independently persisted tile, within the global map cache quota. */
     suspend fun fetchTile(key: ElevationTileKey, progress: (String) -> Unit): FloatArray? {
         if (SystemClock.elapsedRealtime() < retryAt) return null
         val points = key.coordinates()
@@ -183,7 +178,6 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
                 coroutineContext.ensureActive()
                 nextRequestAt = SystemClock.elapsedRealtime() + 1000
                 progress("IGN · téléchargement tuile L${key.level}, ${indices.size} points")
-                Log.i("EBikeTerrain", "Tile HTTP L${key.level}: ${indices.size} samples")
                 request(body)
             }
             val values = JSONObject(response).getJSONArray("elevations")
@@ -195,7 +189,6 @@ class IgnTerrainSource(context: Context, private val onBytes: (Int) -> Unit = {}
         catch (error: Exception) {
             retryAt = SystemClock.elapsedRealtime() + 120_000
             progress("IGN · réseau indisponible, cache conservé")
-            Log.w("EBikeTerrain", "Tile fetch failed", error)
             null
         }
     }

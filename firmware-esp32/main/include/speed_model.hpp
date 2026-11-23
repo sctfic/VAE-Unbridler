@@ -5,7 +5,6 @@
 #include "ebike_types.hpp"
 
 namespace ebike {
-
 struct SpeedPlan {
     uint16_t wheel_speed_centi_kmh = 0;
     uint16_t motor_speed_centi_kmh = 0;
@@ -33,5 +32,4 @@ inline SpeedPlan make_speed_plan(uint16_t circumference_mm, uint16_t threshold_c
     plan.motor_interval_us = static_cast<uint32_t>(numerator / plan.motor_speed_centi_kmh);
     return plan;
 }
-
 }  // namespace ebike

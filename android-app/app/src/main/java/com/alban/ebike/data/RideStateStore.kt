@@ -4,7 +4,6 @@ import android.location.Location
 import android.os.SystemClock
 import com.alban.ebike.location.GpsMotionFilter
 import com.alban.ebike.location.GpsTrackFilter
-import com.alban.ebike.location.GpsDebugLog
 import com.alban.ebike.model.BikeTelemetry
 import com.alban.ebike.model.RideUiState
 import com.alban.ebike.model.TrackPoint
@@ -53,10 +52,8 @@ object RideStateStore {
         distanceM = 0.0; altitudeTrend.reset(); altitudeSource = null
         movingTimer.reset(); elevationGain.reset(); elevationLoss.reset(); calibration.reset()
         resetGpsSpeed()
-        RideTrackJournal.startNewRide()
         _state.update { it.copy(distanceM = 0.0, track = emptyList(), profile = emptyList(),
             position = null, altitudeM = null, altitudeSource = null, altitudeUncertaintyM = null, movingTimeMs = 0, restTimeMs = 0, resting = true, pauses = emptyList(), calibration = null, elevationGainM = 0f, elevationLossM = 0f, inclinePercent = 0f, inclineValid = false) }
-        GpsDebugLog.record("RESET trajet confirmé")
     }
 
     @Synchronized
@@ -103,7 +100,6 @@ object RideStateStore {
     }
 
     fun setFirmwareVersion(version: String?) {
-        GpsDebugLog.record("FIRMWARE version=${version ?: "unavailable"}")
         _state.update { it.copy(firmwareVersion = version) }
     }
     @Synchronized fun setBluetoothReady(ready: Boolean) {
@@ -112,7 +108,7 @@ object RideStateStore {
             eventTelemetry = if (ready) it.eventTelemetry else null,
             wheelTelemetryCoherent = if (ready) it.wheelTelemetryCoherent else false,
             motorTelemetryCoherent = if (ready) it.motorTelemetryCoherent else false,
-            modeSupported = ready && it.modeSupported,
+
             speedMode = ready && it.speedMode,
             wheelSpeedKmh = if (ready) it.wheelSpeedKmh else 0f,
             motorSpeedKmh = if (ready) it.motorSpeedKmh else 0f,
@@ -122,32 +118,21 @@ object RideStateStore {
     fun setEspDetected(detected: Boolean) { _state.update { it.copy(espDetected = detected) } }
 
     fun setBluetoothStatus(message: String) {
-        GpsDebugLog.record("BLE status=$message")
         _state.update { it.copy(bluetoothStatus = message) }
     }
     fun setGpsStatus(message: String) {
-        GpsDebugLog.record(message)
         _state.update { it.copy(gpsStatus = message) }
     }
 
     @Synchronized fun ingestTelemetry(telemetry: BikeTelemetry) {
-        val gps = _state.value
-        GpsDebugLog.record("BLE seq=${telemetry.sequence} uptimeMs=${telemetry.uptimeMs} " +
-            "wheelKmh=${telemetry.wheelSpeedKmh} motorKmh=${telemetry.motorSpeedKmh} " +
-            "wheelUs=${telemetry.wheelIntervalUs} motorUs=${telemetry.motorIntervalUs} " +
-            "revolutions=${telemetry.wheelRevolutions} pulses=${telemetry.emittedPulses} " +
-            "circumferenceMm=${telemetry.circumferenceMm} moving=${telemetry.wheelMoving} " +
-            "turbo=${telemetry.speedMode} simulated=${telemetry.simulatedOutput} " +
-            "gpsKmh=${gps.gpsSpeedKmh} gpsValid=${gps.gpsSpeedValid}")
-        RideTrackJournal.recordTelemetry(telemetry)
         calibration.telemetry(SystemClock.elapsedRealtime(), telemetry.uptimeMs, telemetry.wheelRevolutions)
         _state.update { it.copy(
-            eventTelemetry = telemetry.takeIf { p -> p.eventVersion == 2 },
+            eventTelemetry = telemetry,
             wheelTelemetryTimeMs = SystemClock.elapsedRealtime(),
             wheelTelemetryCoherent = com.alban.ebike.model.TelemetryDisplayValidation.wheel(telemetry),
             motorTelemetryCoherent = com.alban.ebike.model.TelemetryDisplayValidation.motor(telemetry),
             speedMode = telemetry.speedMode,
-            modeSupported = telemetry.modeSupported,
+
             wheelSpeedKmh = telemetry.wheelSpeedKmh,
             motorSpeedKmh = telemetry.motorSpeedKmh,
             simulatedOutput = telemetry.simulatedOutput,
@@ -171,7 +156,6 @@ object RideStateStore {
         val nowMs = SystemClock.elapsedRealtime()
         val fixTimeMs = location.elapsedRealtimeNanos / 1_000_000
         if (fixTimeMs <= lastFixTimeMs) {
-            GpsDebugLog.record("fix désordonné ignoré")
             return
         }
         val fix = GpsMotionFilter.Fix(fixTimeMs,
@@ -186,33 +170,11 @@ object RideStateStore {
         lastFixTimeMs = fixTimeMs
         calibration.gps(fixTimeMs, nowMs, location.latitude, location.longitude, fix.accuracyM,
             decision.accepted && _state.value.bluetoothReady)
-        val accuracy = if (location.hasAccuracy()) "%.0f".format(location.accuracy) else "?"
-        val rawSpeed = if (location.hasSpeed()) "%.1f".format(location.speed * 3.6f) else "?"
-        val speedError = if (location.hasSpeedAccuracy()) "%.2f".format(location.speedAccuracyMetersPerSecond) else "?"
-        val diagnostic = "GPS ${location.provider} ±${accuracy}m · âge ${nowMs - fixTimeMs}ms\n" +
-            "brut=$rawSpeed km/h ±$speedError m/s\n" +
-            "retenu=${if (motion.reliable) "%.1f".format(motion.speedKmh) else "—"} km/h · ${motion.reason}"
-        setGpsStatus(diagnostic)
-        GpsDebugLog.record("fix altitude=${if (location.hasAltitude()) location.altitude else null} " +
-            "speedValid=${motion.reliable} moving=${motion.moving} output=${motion.speedKmh} " +
-            "trace=${decision.reason} append=${decision.append} segmentStart=${decision.segmentStart} stepM=${decision.distanceM}")
+        val gpsStatus = if (motion.reliable) "GPS actif" else "GPS : mesure incertaine"
         if (motion.reliable) lastReliableSpeedMs = fixTimeMs
         _state.update { it.copy(gpsSpeedTimeMs = fixTimeMs, gpsSpeedKmh = motion.speedKmh, gpsSpeedValid = motion.reliable, gpsSpeedApproximate = approximate) }
         expireGpsSpeed(nowMs)
-        if (!decision.accepted) {
-            val snapshot = _state.value
-            RideTrackJournal.record(TrackPoint(location.latitude, location.longitude,
-                if (location.hasAltitude()) location.altitude.toFloat() else 0f, location.time,
-                distanceM, true, snapshot.displayedSpeedKmh, snapshot.inclinePercent.takeIf { snapshot.inclineValid },
-                altitudeValid = location.hasAltitude(), movingTimeMs = snapshot.movingTimeMs,
-                restTimeMs = snapshot.restTimeMs, resting = snapshot.resting, elevationGainM = snapshot.elevationGainM, elevationLossM = snapshot.elevationLossM,
-                speedSource = snapshot.displayedSpeedSource, accuracyM = fix.accuracyM,
-                rawAltitudeM = location.altitude.takeIf { location.hasAltitude() },
-                rawSpeedKmh = location.speed.takeIf { location.hasSpeed() }?.times(3.6f), positionValid = false,
-                wheelSpeedKmh = snapshot.wheelSpeedKmh.takeIf { snapshot.bluetoothReady },
-                motorSpeedKmh = snapshot.motorSpeedKmh.takeIf { snapshot.bluetoothReady }))
-            return
-        }
+        if (!decision.accepted) return
         val time = location.time.takeIf { it > 0 } ?: System.currentTimeMillis()
         distanceM += decision.distanceM
 
@@ -242,7 +204,6 @@ object RideStateStore {
             fix.accuracyM <= 10f && it.spanM >= maxOf(6.0, fix.accuracyM * 2.0)
         }
         val inclination = estimate?.percent
-        GpsDebugLog.record("profile distanceM=$distanceM grade=$inclination altitude=$altitude altitudeValid=$hasAltitude source=$nextSource uncertaintyM=$uncertainty verticalAccuracy=${if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters else null} append=${decision.append}")
         val snapshot = _state.value
         val point = TrackPoint(location.latitude, location.longitude, altitude ?: 0f, time,
             distanceM, decision.segmentStart, snapshot.displayedSpeedKmh?.takeIf { it.isFinite() }, null, hasAltitude,
@@ -250,21 +211,16 @@ object RideStateStore {
             speedApproximate = snapshot.gpsSpeedValid && snapshot.gpsSpeedApproximate,
             speedSource = snapshot.displayedSpeedSource, accuracyM = fix.accuracyM,
             altitudeSource = nextSource, altitudeUncertaintyM = uncertainty, altitudeSegmentStart = altitudeBreak,
-            gradeEstimatePercent = inclination,
-            rawAltitudeM = location.altitude.takeIf { location.hasAltitude() },
-            rawSpeedKmh = location.speed.takeIf { location.hasSpeed() }?.times(3.6f),
             wheelSpeedKmh = snapshot.wheelSpeedKmh.takeIf { snapshot.bluetoothReady },
             motorSpeedKmh = snapshot.motorSpeedKmh.takeIf { snapshot.bluetoothReady })
         trackPoints = track.add(point)
-        RideTrackJournal.record(point)
         if (estimate != null && decision.append && !movingTimer.resting && !altitudeBreak) {
-            track.applyCenteredGrade(estimate, nextSource)?.let { corrected ->
-                RideTrackJournal.recordGrade(corrected, estimate)
+            track.applyCenteredGrade(estimate, nextSource)?.let {
                 trackPoints = track.snapshot()
             }
         }
         _state.update { it.copy(
-            gpsStatus = diagnostic,
+            gpsStatus = gpsStatus,
             gpsSpeedKmh = motion.speedKmh,
             gpsSpeedValid = motion.reliable,
             gpsSpeedApproximate = approximate,

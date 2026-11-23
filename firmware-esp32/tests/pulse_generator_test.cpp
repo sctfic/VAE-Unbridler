@@ -64,10 +64,16 @@ int main() {
     assert(timer.alarm == resumed + 20);
     fire(); assert(rising.size() == count + 1);
     pulse.stop(); assert(closed); fire(); assert(!closed && !timer.armed);
-    // Ring overflow counts loss without overwriting captured wheel timestamps.
+    // A full ring keeps captured wheel timestamps intact.
     telemetry.set_circumference(2200);
     for (unsigned i = 0; i < 17; ++i) telemetry.record_event(i + 1, true, 1, 1);
-    assert(telemetry.snapshot().telemetry_drops == 1);
+    const auto current = ebike::make_event(telemetry.snapshot(), esp_timer_get_time(), true);
+    ebike::BleEventPacket wire{}; wire.type = 2; wire.sequence = 0x1234; wire.data = current;
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&wire);
+    assert(sizeof(wire) == 52 && bytes[0] == 3 && bytes[1] == 2);
+    assert(bytes[2] == 0x34 && bytes[3] == 0x12);
+    assert(bytes[48] == 0x98 && bytes[49] == 0x08); // circumference 2200, LE
+    assert((bytes[50] & 12) == 12); // Turbo and valid physical motor timestamp
     ebike::BleEventPayload p{}; uint8_t type;
     for (unsigned i = 0; i < 16; ++i) {
         assert(telemetry.pop_event(p, type)); assert(type == 1); assert(p.circumference_mm == 2200);

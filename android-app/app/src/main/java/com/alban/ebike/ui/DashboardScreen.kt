@@ -92,22 +92,13 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
         legendVisible = false
     }
     var sceneWindow by rememberSaveable { mutableStateOf(runCatching {
-        displayPreferences.getString("route-window", null)?.let { SceneWindow.valueOf(it) }
-            ?: when (displayPreferences.getInt("profile-mode", 0)) {
-                1 -> SceneWindow.ALL; 2 -> SceneWindow.LAST_2_KM; else -> SceneWindow.LAST_500_M
-            }
+        SceneWindow.valueOf(displayPreferences.getString("route-window", SceneWindow.LAST_500_M.name)!!)
     }.getOrDefault(SceneWindow.LAST_500_M)) }
     LaunchedEffect(metric, sceneWindow) {
         displayPreferences.edit().putString("metric", metric.name).putString("route-window", sceneWindow.name)
             .putString("scene-window", sceneWindow.name).apply()
     }
     val context = LocalContext.current
-    val diagnosticPreferences = remember { com.alban.ebike.data.BikeProfiles.preferences("scene-layers") }
-    var debugVisible by remember { mutableStateOf(diagnosticPreferences.getBoolean("debug", false)) }
-    val setDebugVisible: (Boolean) -> Unit = { enabled ->
-        debugVisible = enabled
-        diagnosticPreferences.edit().putBoolean("debug", enabled).apply()
-    }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var terrainStatus by remember { mutableStateOf("EN ATTENTE DE POSITION · GRILLE") }
     val toggle by rememberUpdatedState(onToggleMode)
@@ -118,7 +109,7 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
           Box(Modifier.fillMaxSize()) {
            TerrainScene(state, Modifier.align(Alignment.TopEnd).fillMaxWidth(.6f).fillMaxHeight(), metric,
                sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
-               debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
+               selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
           Row(Modifier.fillMaxWidth().fillMaxHeight(.8f)) {
            Column(Modifier.weight(.4f).fillMaxHeight()) {
             Row(Modifier.fillMaxWidth().height(60.dp).windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top).union(WindowInsets.displayCutout.only(WindowInsetsSides.Start))).padding(horizontal = 6.dp),
@@ -129,9 +120,6 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Column(Modifier.fillMaxWidth().weight(1f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
                 SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f), metric == RouteMetric.SPEED)
-                if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    color = Muted, fontSize = 8.sp, lineHeight = 9.sp, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
            }
             Box(Modifier.width(1.dp).fillMaxHeight().background(accent.copy(alpha = .25f)))
@@ -169,14 +157,11 @@ fun DashboardScreen(state: RideUiState, circumferenceMm: Int, onAssociate: () ->
             Column(Modifier.fillMaxWidth().weight(.38f)
                 .pointerInput(Unit) { detectTapGestures(onTap = { selectMetric(RouteMetric.SPEED) }, onDoubleTap = { toggle() }) }) {
                 SpeedGauge(state, readout, accent, Modifier.fillMaxWidth().weight(1f), metric == RouteMetric.SPEED)
-                if (debugVisible) Text(state.gpsStatus, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    color = Muted, fontSize = 9.sp, lineHeight = 11.sp, maxLines = 3,
-                    overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
             Separator(accent)
             Box(Modifier.fillMaxWidth().weight(.62f).clipToBounds()) {
                 TerrainScene(state, Modifier.fillMaxSize(), metric, sceneWindow, { sceneWindow = it }, onReset = { resetOpen = true },
-                    debugVisible = debugVisible, onDebugChange = setDebugVisible, selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
+                    selectedPoint = selectedPoint, profileDragging = profileDragging, onSceneTouch = { sceneTouching = it }) { terrainStatus = it }
                 Column(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(end = 116.dp)
                     .padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -339,15 +324,9 @@ private fun Modifier.metricHalo(active: Boolean): Modifier = if (!active) this e
     val displayModel = remember { com.alban.ebike.model.SpeedDisplayModel() }
     var presented by remember { mutableStateOf(com.alban.ebike.model.DisplaySpeeds()) }
     LaunchedEffect(displayModel) {
-        var lastLog = 0L
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
             val now = android.os.SystemClock.elapsedRealtime()
             presented = latestState.speedPresentation ?: displayModel.update(latestState, now)
-            if (now - lastLog >= 1000) {
-                lastLog = now
-                com.alban.ebike.location.GpsDebugLog.record("DISPLAY main=${presented.main} source=${presented.source} " +
-                    "gps=${presented.gps} wheel=${presented.wheel} motor=${presented.motor} rawWheel=${latestState.wheelSpeedKmh}")
-            }
             kotlinx.coroutines.delay(250)
         }
     }
@@ -379,7 +358,7 @@ private fun Modifier.metricHalo(active: Boolean): Modifier = if (!active) this e
             }
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (readout.historical) "POINT DU PARCOURS" else if (!state.bluetoothReady) "MODE —" else if (!state.modeSupported) "MODE INCONNU" else if (state.speedMode) "TURBO" else "STANDARD",
+            Text(if (readout.historical) "POINT DU PARCOURS" else if (!state.bluetoothReady) "MODE —" else if (state.speedMode) "TURBO" else "STANDARD",
                 color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
             Text(if (readout.historical) readout.speedSource else presented.source + (if (latestState.eventTelemetry != null) " · ${if (presented.source == "GPS") "roue " else ""}${presented.wheelState}" else ""), color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
             Text(androidx.compose.ui.text.buildAnnotatedString {

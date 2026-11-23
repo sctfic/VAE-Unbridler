@@ -52,7 +52,6 @@ class RideService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        com.alban.ebike.data.RideTrackJournal.initialize(this)
         createNotificationChannel()
         locationEngine = RideLocationEngine(this)
         settings = BikeSettingsStore(this)
@@ -215,7 +214,7 @@ class RideService : Service() {
                 if (FirmwareUpdateStore.state.value.busy) return START_NOT_STICKY
                 val state = RideStateStore.state.value
                 val bike = intent.getStringExtra(EXTRA_BIKE_ID)
-                if (state.bluetoothReady && state.modeSupported && bike == connectedBike) {
+                if (state.bluetoothReady && bike == connectedBike) {
                     gattClient.setWheelCircumference(settings.currentCircumference(bike!!), !state.speedMode, bike)
                 }
             }

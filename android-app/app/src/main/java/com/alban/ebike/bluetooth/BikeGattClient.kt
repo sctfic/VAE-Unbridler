@@ -20,7 +20,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
-import android.util.Log
 import androidx.core.content.ContextCompat
 import com.alban.ebike.model.BikeTelemetry
 import com.alban.ebike.model.BleProtocol
@@ -30,7 +29,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
-import com.alban.ebike.location.GpsDebugLog
 import com.alban.ebike.firmware.FirmwareUpdateStore
 
 class BikeGattClient(
@@ -61,16 +59,11 @@ class BikeGattClient(
     private var initialInfoPending = false
     private val eventDecoder = com.alban.ebike.model.WheelEventDecoder()
     private val eventClock = com.alban.ebike.model.WheelEventClock()
-    private var eventProtocol = false
     private var initialTelemetry: BikeTelemetry? = null
     private var mtu = 23
     val firmwareChunkSize get() = (mtu - 7).coerceIn(1, 240)
     val ready get() = isReady
     private val initializationTimeout = Runnable { initialInfoPending = false; gatt?.disconnect() }
-    private var sensorDiagnosticsCharacteristic: BluetoothGattCharacteristic? = null
-    private var firmwareCharacteristic: BluetoothGattCharacteristic? = null
-    private var firmwareReadAttempted = false
-    private var otaReadAttempted = false
     private var scanning = false
     private var stopped = false
     @Volatile private var isReady = false
@@ -79,7 +72,6 @@ class BikeGattClient(
     private val reconnect = Runnable { scanAndConnect() }
 
     private fun status(message: String) {
-        Log.i("EBikeBLE", message)
         onStatus(message)
     }
 
@@ -97,7 +89,7 @@ class BikeGattClient(
         pending?.completeExceptionally(IllegalStateException("Connexion Bluetooth arrêtée."))
         onFirmwareInfo(null)
         isReady = false
-        eventDecoder.reset(); eventClock.reset(); initialTelemetry = null
+        eventClock.reset(); initialTelemetry = null
         initialInfoPending = false
         if (hasBluetoothPermission()) {
             runCatching {
@@ -136,13 +128,26 @@ class BikeGattClient(
     }
 
     suspend fun firmwareControl(bytes: ByteArray) {
-        transact(otaControl ?: error("Première installation OTA par USB nécessaire."), bytes)
+        transact(otaControl ?: error("Connexion OTA indisponible."), bytes)
     }
 
-    suspend fun firmwareData(bytes: ByteArray) { transact(otaData ?: error("OTA indisponible."), bytes) }
+    suspend fun firmwareData(bytes: ByteArray) {
+        transact(otaData ?: error("OTA indisponible."), bytes, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+    }
 
     @SuppressLint("MissingPermission")
-    private suspend fun transact(characteristic: BluetoothGattCharacteristic, bytes: ByteArray?): ByteArray =
+    suspend fun firmwareTransferPriority(high: Boolean) = withContext(Dispatchers.Main.immediate) {
+        val connection = gatt ?: return@withContext
+        connection.requestConnectionPriority(if (high) BluetoothGatt.CONNECTION_PRIORITY_HIGH else BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+        if (high && adapter?.isLe2MPhySupported == true) {
+            connection.setPreferredPhy(BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK,
+                BluetoothDevice.PHY_OPTION_NO_PREFERRED)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun transact(characteristic: BluetoothGattCharacteristic, bytes: ByteArray?,
+        writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT): ByteArray =
         withContext(Dispatchers.Main.immediate) {
             operations.withLock {
                 val connection = gatt ?: error("ESP32 déconnecté.")
@@ -154,7 +159,7 @@ class BikeGattClient(
                 pending = result; pendingUuid = characteristic.uuid
                 try {
                     val started = if (bytes == null) connection.readCharacteristic(characteristic) else {
-                        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        characteristic.writeType = writeType
                         characteristic.value = bytes
                         connection.writeCharacteristic(characteristic)
                     }
@@ -221,12 +226,10 @@ class BikeGattClient(
                 return
             }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothGatt.STATE_CONNECTED) {
-                eventDecoder.reset(); eventClock.reset(); initialTelemetry = null
-                firmwareReadAttempted = false
-                otaReadAttempted = false
+                eventClock.reset(); initialTelemetry = null
                 status("ESP32 connecté · préparation")
                 handler.postDelayed(initializationTimeout, 20_000)
-                // Telemetry is 32 bytes; the default ATT payload is only 20.
+                // Negotiate room for OTA metadata and 240-byte data chunks.
                 if (!gatt.requestMtu(247)) gatt.disconnect()
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 isReady = false
@@ -234,7 +237,6 @@ class BikeGattClient(
                 telemetryCharacteristic = null
                 configCharacteristic = null
                 otaControl = null; otaData = null
-                sensorDiagnosticsCharacteristic = null; firmwareCharacteristic = null
                 handler.removeCallbacks(initializationTimeout)
                 pending?.completeExceptionally(IllegalStateException("Connexion Bluetooth interrompue."))
                 onFirmwareInfo(null)
@@ -251,7 +253,7 @@ class BikeGattClient(
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
             this@BikeGattClient.mtu = mtu
-            if (status == BluetoothGatt.GATT_SUCCESS && mtu >= 23) gatt.discoverServices()
+            if (status == BluetoothGatt.GATT_SUCCESS && mtu >= 55) gatt.discoverServices()
             else {
                 status("Connexion incompatible · paquet Bluetooth trop court")
                 gatt.disconnect()
@@ -266,15 +268,14 @@ class BikeGattClient(
                 return
             }
             val service = gatt.getService(BleProtocol.serviceUuid) ?: run { gatt.disconnect(); return }
-            val events = service.getCharacteristic(BleProtocol.eventsUuid)
-            eventProtocol = events != null
-            if (!eventProtocol && mtu < 35) { gatt.disconnect(); return }
-            telemetryCharacteristic = events ?: service.getCharacteristic(BleProtocol.telemetryUuid)
+            telemetryCharacteristic = service.getCharacteristic(BleProtocol.eventsUuid)
             configCharacteristic = service.getCharacteristic(BleProtocol.configUuid)
-            otaControl = service.getCharacteristic(FirmwareProtocol.controlUuid).takeIf { mtu >= 51 }
-            otaData = service.getCharacteristic(FirmwareProtocol.dataUuid).takeIf { otaControl != null }
-            sensorDiagnosticsCharacteristic = service.getCharacteristic(BleProtocol.sensorDiagnosticsUuid)
-            firmwareCharacteristic = service.getCharacteristic(BleProtocol.firmwareUuid)
+            otaControl = service.getCharacteristic(FirmwareProtocol.controlUuid)
+            otaData = service.getCharacteristic(FirmwareProtocol.dataUuid)
+            if (configCharacteristic == null || otaControl == null || otaData == null ||
+                otaData!!.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
+                gatt.disconnect(); return
+            }
             onFirmwareVersion(null)
             val telemetry = telemetryCharacteristic ?: run { gatt.disconnect(); return }
             gatt.setCharacteristicNotification(telemetry, true)
@@ -287,29 +288,10 @@ class BikeGattClient(
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (stopped || this@BikeGattClient.gatt !== gatt) return
             if (descriptor.uuid != CLIENT_CONFIGURATION_UUID) return
-            when (descriptor.characteristic.uuid) {
-                BleProtocol.eventsUuid -> {
-                    if (status != BluetoothGatt.GATT_SUCCESS) { gatt.disconnect(); return }
-                    finishReady(gatt)
-                }
-                BleProtocol.telemetryUuid -> {
-                    if (status != BluetoothGatt.GATT_SUCCESS) return
-                    // Serialize CCCD writes before onReady can enqueue a config write.
-                    val sensor = sensorDiagnosticsCharacteristic
-                    val sensorDescriptor = sensor?.getDescriptor(CLIENT_CONFIGURATION_UUID)
-                    if (sensor != null && sensorDescriptor != null &&
-                        gatt.setCharacteristicNotification(sensor, true)) {
-                        sensorDescriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        if (gatt.writeDescriptor(sensorDescriptor)) return
-                    }
-                    GpsDebugLog.record("SENSOR diagnostics=unavailable")
-                    finishReady(gatt)
-                }
-                BleProtocol.sensorDiagnosticsUuid -> {
-                    GpsDebugLog.record("SENSOR subscriptionStatus=$status")
-                    finishReady(gatt) // Optional diagnostics must not block legacy telemetry.
-                }
-            }
+            if (descriptor.characteristic.uuid != BleProtocol.eventsUuid) return
+            if (status != BluetoothGatt.GATT_SUCCESS) { gatt.disconnect(); return }
+            initialInfoPending = true
+            if (!gatt.readCharacteristic(otaControl!!)) gatt.disconnect()
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
@@ -350,17 +332,13 @@ class BikeGattClient(
     private fun consumeRead(connection: BluetoothGatt, uuid: UUID, value: ByteArray, result: Int) {
         handler.post {
             if (stopped || gatt !== connection) return@post
-            if (!isReady && uuid == BleProtocol.firmwareUuid) {
-                onFirmwareVersion(if (result == BluetoothGatt.GATT_SUCCESS) BleProtocol.decodeFirmwareVersion(value) else null)
-                finishReady(connection)
-                return@post
-            }
             if (initialInfoPending && uuid == FirmwareProtocol.controlUuid) {
                 initialInfoPending = false
                 if (result == BluetoothGatt.GATT_SUCCESS) {
                     val info = FirmwareProtocol.decode(value)
                     onFirmwareInfo(info)
-                    if (info != null) onFirmwareVersion(info.version)
+                    if (info == null || !info.supported) { connection.disconnect(); return@post }
+                    onFirmwareVersion(info.version)
                     finishReady(connection)
                 } else connection.disconnect()
             } else if (pendingUuid == uuid) {
@@ -371,23 +349,10 @@ class BikeGattClient(
     }
 
     private fun consumeTelemetry(address: String, uuid: UUID, value: ByteArray) {
-        if (uuid == BleProtocol.eventsUuid && eventProtocol) {
+        if (uuid == BleProtocol.eventsUuid) {
             val now = android.os.SystemClock.elapsedRealtime()
-            eventDecoder.accept(value, now)?.let { raw -> eventClock.accept(raw, now) }?.let {
-                GpsDebugLog.record("EVENT session=${it.session} seq=${it.sequence} kind=${it.eventType} " +
-                    "atUs=${it.eventTimeUs} wheelUs=${it.wheelIntervalUs} confirmation=${it.confirmation} " +
-                    "commandUs=${it.motorIntervalUs} motorAtUs=${it.motorTimeUs} motorValid=${it.motorTimeValid} " +
-                    "rejected=${it.rejectedEdges} dropped=${it.droppedEdges} telemetryDropped=${it.telemetryDrops} lost=${it.lostEvents}")
+            eventDecoder.accept(value)?.let { raw -> eventClock.accept(raw, now) }?.let {
                 if (isReady) onTelemetry(address, it) else initialTelemetry = it
-            }
-        }
-        if (uuid == BleProtocol.telemetryUuid) BleProtocol.decodeTelemetry(value)?.let { onTelemetry(address, it) }
-        if (uuid == BleProtocol.sensorDiagnosticsUuid) {
-            BleProtocol.decodeSensorDiagnostics(value)?.let { sensor ->
-                GpsDebugLog.record("SENSOR seq=${sensor.sequence} intervalValid=${sensor.intervalValid} " +
-                    "rawIntervalUs=${sensor.rawIntervalUs} edges=${sensor.edges} " +
-                    "rejectedEdges=${sensor.rejectedEdges} queueDroppedEdges=${sensor.droppedEdges} " +
-                    "limit99=${sensor.limit99} acceleration15=${sensor.acceleration15} holdPrevious=${sensor.holdPrevious}")
             }
         }
     }
@@ -395,23 +360,6 @@ class BikeGattClient(
     @SuppressLint("MissingPermission")
     private fun finishReady(connection: BluetoothGatt) {
         if (isReady || gatt !== connection || stopped) return
-        if (!firmwareReadAttempted) {
-            firmwareReadAttempted = true
-            val firmware = firmwareCharacteristic
-            if (firmware != null && connection.readCharacteristic(firmware)) return
-        }
-        if (!otaReadAttempted) {
-            otaReadAttempted = true
-            val control = otaControl
-            if (control != null) {
-                initialInfoPending = true
-                if (connection.readCharacteristic(control)) return
-                initialInfoPending = false
-                connection.disconnect()
-                return
-            }
-            onFirmwareInfo(null)
-        }
         handler.removeCallbacks(initializationTimeout)
         connectionEpoch++
         isReady = true

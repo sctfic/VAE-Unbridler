@@ -3,7 +3,7 @@ package com.alban.ebike.location
 import android.location.Location
 import android.os.Build
 
-/** Keep the original ellipsoid height in Location for the raw journal. */
+/** Prefer mean sea level altitude when the location provider supplies it. */
 object GpsAltitude {
     fun meters(location: Location): Double? =
         if (Build.VERSION.SDK_INT >= 34 && location.hasMslAltitude()) location.mslAltitudeMeters

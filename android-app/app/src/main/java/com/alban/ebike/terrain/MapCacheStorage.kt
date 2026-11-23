@@ -2,7 +2,7 @@ package com.alban.ebike.terrain
 
 import java.io.File
 
-/** Only map/elevation data and derived geometry. Ride journals and preferences are outside this list. */
+/** Only map/elevation data and derived geometry. User data and preferences are outside this list. */
 class MapCacheStorage(filesDir: File, cacheDir: File) {
     private val directories = listOf(
         filesDir to "elevation-tiles-v1", filesDir to "map-features-v2", filesDir to "geometry-v1",

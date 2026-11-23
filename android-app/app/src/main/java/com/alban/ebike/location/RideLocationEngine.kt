@@ -7,8 +7,6 @@ import android.os.Looper
 import android.os.Handler
 import android.os.SystemClock
 import android.location.LocationManager
-import com.google.android.gms.location.LocationAvailability
-import android.util.Log
 import androidx.core.content.ContextCompat
 import com.alban.ebike.data.RideStateStore
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -32,7 +30,6 @@ class RideLocationEngine(context: Context) {
     private var lastHeartbeatMs = 0L
     private val locationManager = appContext.getSystemService(LocationManager::class.java)
     init {
-        GpsDebugLog.initialize(appContext)
         com.alban.ebike.data.BikeProfiles.initialize(appContext)
         RideStateStore.movingThresholdKmh = com.alban.ebike.data.BikeProfiles.preferences("ride-options")
             .getFloat("moving-threshold", 4f).coerceIn(0f, 20f)
@@ -49,7 +46,7 @@ class RideLocationEngine(context: Context) {
                 val status = "GPS système=${locationManager.isLocationEnabled} · " +
                     "dernier fix ${if (lastFixMs == 0L) "jamais" else "${(now - lastFixMs) / 1000}s"}"
                 if (lastFixMs == 0L || now - lastFixMs > 4000) RideStateStore.setGpsStatus(status)
-                else GpsDebugLog.record(status)
+
             }
             handler.postDelayed(this, 1000)
         }
@@ -64,15 +61,12 @@ class RideLocationEngine(context: Context) {
                 android.location.Location(original).also { location ->
                     if (android.os.Build.VERSION.SDK_INT >= 34 && location.hasAltitude() && !location.hasMslAltitude()) {
                         try { altitudeConverter?.addMslAltitudeToLocation(appContext, location) }
-                        catch (error: java.io.IOException) { GpsDebugLog.record("MSL conversion unavailable: ${error.javaClass.simpleName}") }
-                        catch (error: IllegalArgumentException) { GpsDebugLog.record("MSL conversion invalid fix") }
+                        catch (error: java.io.IOException) {}
+                        catch (error: IllegalArgumentException) {}
                     }
                 }
             }
             handler.post { if (started && generation == epoch) locations.forEach(RideStateStore::ingestLocation) }
-        }
-        override fun onLocationAvailability(availability: LocationAvailability) {
-            GpsDebugLog.record("provider available=${availability.isLocationAvailable}")
         }
     }
 
@@ -83,8 +77,6 @@ class RideLocationEngine(context: Context) {
             RideStateStore.setGpsStatus("GPS : permission précise absente")
             return
         }
-        GpsDebugLog.record("START model=${android.os.Build.MODEL} api=${android.os.Build.VERSION.SDK_INT} " +
-            "locationEnabled=${locationManager.isLocationEnabled}")
         lastFixMs = 0L
         generation++
         started = true
@@ -101,16 +93,12 @@ class RideLocationEngine(context: Context) {
             .build()
         try {
             client.requestLocationUpdates(request, callback, worker!!.looper)
-                .addOnSuccessListener { GpsDebugLog.record("SUBSCRIBED high accuracy interval=500ms") }
                 .addOnFailureListener {
                     started = false
                     worker?.quitSafely(); worker = null
                     RideStateStore.setGpsStatus("GPS indisponible · vérifier la localisation")
-                    Log.e("EBikeGPS", "Location subscription failed", it)
-                    GpsDebugLog.record("SUBSCRIBE FAILED ${it.javaClass.simpleName}: ${it.message}")
                 }
         } catch (error: SecurityException) {
-            GpsDebugLog.record("SECURITY ${error.message}")
             started = false
             worker?.quitSafely(); worker = null
             RideStateStore.setGpsStatus("Autorisation GPS nécessaire")
@@ -118,7 +106,6 @@ class RideLocationEngine(context: Context) {
     }
 
     fun stop() {
-        GpsDebugLog.record("STOP location service")
         handler.removeCallbacks(staleCheck)
         started = false
         generation++

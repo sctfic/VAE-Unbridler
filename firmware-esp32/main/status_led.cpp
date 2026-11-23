@@ -3,7 +3,6 @@
 
 #include <atomic>
 #include "driver/rmt_tx.h"
-#include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,7 +30,6 @@ void task(void* context) {
     if (result == ESP_OK) result = rmt_new_copy_encoder(&copy_config, &encoder);
     if (result == ESP_OK) result = rmt_enable(channel);
     if (result != ESP_OK) {
-        ESP_LOGE("status_led", "LED initialization failed: %s", esp_err_to_name(result));
         if (encoder) rmt_del_encoder(encoder);
         if (channel) rmt_del_channel(channel);
         vTaskDelete(nullptr);
@@ -75,7 +73,6 @@ void task(void* context) {
             result = rmt_transmit(channel, encoder, symbols, sizeof(symbols), &transmit);
             if (result == ESP_OK) result = rmt_tx_wait_all_done(channel, -1);
             if (result != ESP_OK) {
-                ESP_LOGE("status_led", "LED transmission failed: %s", esp_err_to_name(result));
                 vTaskDelete(nullptr);
                 return;
             }
@@ -87,9 +84,8 @@ void task(void* context) {
 }
 
 void begin(TelemetryStore& telemetry) {
-    if (xTaskCreatePinnedToCore(task, "status_led", 3072, &telemetry, 2, nullptr, 0) != pdPASS) {
-        ESP_LOGE("status_led", "Unable to create LED task");
-    }
+    const auto created = xTaskCreatePinnedToCore(task, "status_led", 3072, &telemetry, 2, nullptr, 0);
+    configASSERT(created == pdPASS);
 }
 void ready() { initialized.store(true); }
 void connected(bool value) { bluetooth.store(value); }

@@ -6,7 +6,6 @@
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_check.h"
-#include "esp_log.h"
 #include "esp_timer.h"
 #include "pulse_schedule.hpp"
 #include "freertos/task.h"
@@ -16,7 +15,6 @@
 
 namespace ebike {
 namespace {
-constexpr char kTag[] = "pulse";
 constexpr uint64_t kEarliestTaskAlarmUs = 20;
 
 inline void IRAM_ATTR set_contact_closed(bool closed) {
@@ -82,7 +80,6 @@ void PulseGenerator::initialize_on_current_core() {
     ESP_ERROR_CHECK(gptimer_set_alarm_action(timer_, &initial_alarm));
     ESP_ERROR_CHECK(gptimer_enable(timer_));
     ESP_ERROR_CHECK(gptimer_start(timer_));
-    ESP_LOGI(kTag, "GPTimer started at 1 MHz on real-time core, GPIO %d", kMotorContactPin);
 }
 
 bool PulseGenerator::request_ota_wake(uint16_t circumference_mm) {
@@ -102,7 +99,7 @@ void PulseGenerator::cancel_ota_wake() {
     if (wake_owned_) wake_cancelled_ = true;
     portEXIT_CRITICAL(&lock_);
 }
-void IRAM_ATTR PulseGenerator::cancel_ota_wake_from_isr() {
+void PulseGenerator::cancel_ota_wake_from_isr() {
     portENTER_CRITICAL_ISR(&lock_);
     if (wake_owned_) wake_cancelled_ = true;
     portEXIT_CRITICAL_ISR(&lock_);
@@ -115,14 +112,14 @@ bool PulseGenerator::ota_wake_complete() const {
     return complete;
 }
 void PulseGenerator::service_ota_wake() {
-    bool report = false, cancelled = false;
+    bool report = false;
     uint32_t interval = 0;
     portENTER_CRITICAL(&lock_);
     if (wake_owned_ && wake_cancelled_) {
         wake_owned_ = false; wake_remaining_ = 0;
         continuous_ = false; expires_us_ = 0; simulated_interval_us_ = 0;
         if (!contact_closed_) { armed_ = false; disarm_from_task(); }
-        report = cancelled = true;
+        report = true;
     } else if (wake_owned_ && !wake_started_) {
         wake_started_ = true; continuous_ = true;
         interval = wake_interval_us_;
@@ -140,14 +137,8 @@ void PulseGenerator::service_ota_wake() {
     portEXIT_CRITICAL(&lock_);
     if (report) {
         telemetry_.update_motor(interval, interval ? 200 : 0, false);
-        ESP_LOGI(kTag, "OTA wake %s interval=%lu us", cancelled ? "cancelled" : interval ? "started" : "complete",
-            (unsigned long)interval);
-    }
-}
 
-void PulseGenerator::emit_passthrough(uint32_t interval_us, uint16_t speed_centi_kmh) {
-    // Kept for source compatibility; every contact now uses the same scheduler.
-    if (interval_us) set_output_interval(interval_us, speed_centi_kmh, false);
+    }
 }
 
 void PulseGenerator::retain_until(int64_t esp_deadline_us) {
@@ -248,17 +239,11 @@ bool IRAM_ATTR PulseGenerator::on_alarm(gptimer_handle_t timer,
 
 void PulseGenerator::arm_from_task(uint64_t alarm_at_us) {
     const gptimer_alarm_config_t alarm = make_alarm(alarm_at_us);
-    const esp_err_t result = gptimer_set_alarm_action(timer_, &alarm);
-    if (result != ESP_OK) {
-        ESP_LOGE(kTag, "Unable to arm GPTimer: %s", esp_err_to_name(result));
-    }
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(timer_, &alarm));
 }
 
 void PulseGenerator::disarm_from_task() {
-    const esp_err_t result = gptimer_set_alarm_action(timer_, nullptr);
-    if (result != ESP_OK) {
-        ESP_LOGE(kTag, "Unable to disarm GPTimer: %s", esp_err_to_name(result));
-    }
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(timer_, nullptr));
 }
 
 uint64_t PulseGenerator::now_us() const {
@@ -266,5 +251,4 @@ uint64_t PulseGenerator::now_us() const {
     ESP_ERROR_CHECK(gptimer_get_raw_count(timer_, &now));
     return now;
 }
-
 }  // namespace ebike

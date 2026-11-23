@@ -55,7 +55,6 @@ class SpeedDisplayModel {
     private val wheel = SpeedDisplayFilter()
     private val motor = SpeedDisplayFilter()
     private var gpsTime = -1L
-    private var wheelTime = -1L
     private var mode: Boolean? = null
     private var session: Long? = null
     private var wheelEventUs = -1L
@@ -67,7 +66,7 @@ class SpeedDisplayModel {
         val event = state.eventTelemetry
         var estimate: EventSpeeds? = null
         if (!state.bluetoothReady) {
-            wheel.reset(); motor.reset(); wheelTime = -1; mode = null; session = null
+            wheel.reset(); motor.reset(); mode = null; session = null
             wheelEventUs = -1; motorEventUs = -1; motorCommand = -1; clockOffsetMs = null
         } else if (event != null) {
             val offset = event.mappedEventMs - event.eventTimeUs / 1000
@@ -89,12 +88,6 @@ class SpeedDisplayModel {
             }
             estimate = WheelEventEstimate.at(event, nowMs)
             if (estimate.wheel == 0f) { wheel.reset(); motor.reset() }
-        } else if (state.wheelTelemetryTimeMs != wheelTime) {
-            if (mode != null && mode != state.speedMode) motor.reset()
-            mode = state.speedMode
-            wheelTime = state.wheelTelemetryTimeMs
-            wheel.accept(state.wheelSpeedKmh.takeIf { state.wheelTelemetryCoherent }, wheelTime)
-            motor.accept(state.motorSpeedKmh.takeIf { state.motorTelemetryCoherent }, wheelTime)
         }
         if (state.gpsSpeedTimeMs != gpsTime) {
             gpsTime = state.gpsSpeedTimeMs
@@ -113,7 +106,7 @@ class SpeedDisplayModel {
             }
             m = e.motor?.let { bound -> if (bound == 0f) 0f else
                 motor.value(nowMs, WheelEventEstimate.stopMs(event)) ?: bound }
-        } else { w = wheel.value(nowMs); m = motor.value(nowMs) }
+        } else { w = null; m = null }
         // Selection uses the latest accepted GPS stop, not the slowly changing average.
         val gpsStopped = state.gpsSpeedValid && state.gpsSpeedKmh == 0f
         val source = when {
@@ -136,10 +129,5 @@ object TelemetryDisplayValidation {
         return kotlin.math.abs(circumference * 3600.0 / periodUs - speed) <= .03
     }
     fun wheel(packet: BikeTelemetry) = periodMatches(packet.wheelSpeedKmh, packet.wheelIntervalUs, packet.circumferenceMm)
-    fun motor(packet: BikeTelemetry): Boolean {
-        if (packet.eventVersion == 2) return periodMatches(packet.motorSpeedKmh, packet.motorIntervalUs, packet.circumferenceMm)
-        if (!wheel(packet) || !periodMatches(packet.motorSpeedKmh, packet.motorIntervalUs, packet.circumferenceMm)) return false
-        val expected = if (packet.simulatedOutput) 20f + (packet.wheelSpeedKmh * 100).toInt() / 10 / 100f else packet.wheelSpeedKmh
-        return kotlin.math.abs(expected - packet.motorSpeedKmh) <= .03f
-    }
+    fun motor(packet: BikeTelemetry) = periodMatches(packet.motorSpeedKmh, packet.motorIntervalUs, packet.circumferenceMm)
 }

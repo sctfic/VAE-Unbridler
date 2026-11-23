@@ -1,11 +1,11 @@
 package com.alban.ebike.firmware
 
 import com.alban.ebike.bluetooth.BikeGattClient
-import com.alban.ebike.data.RideStateStore
 import com.alban.ebike.model.FirmwareInfo
 import com.alban.ebike.model.FirmwareProtocol
 import java.io.File
 import java.util.UUID
+import android.os.SystemClock
 import kotlinx.coroutines.*
 
 /** Runs in RideService, so rotation/backgrounding the dashboard does not stop OTA. */
@@ -57,28 +57,19 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
             val file = File(cacheDir, "esp32-ota-${UUID.randomUUID()}.bin")
             try {
                 client.lockFirmwareDevice(true)
+                client.firmwareTransferPriority(true)
                 val old = info(allowError = true)
                 require(old.supported && old.bootConfirmed && release.versionCode > old.versionCode && release.size <= old.capacity) {
                     "Firmware incompatible ou trop volumineux pour cet ESP32."
                 }
                 requireStationary(old)
-                if (old.wakeSupported) {
-                    phase(UpdatePhase.WAKING, "Maintien de l’alimentation : trois impulsions lentes à 2 km/h…")
-                    client.firmwareControl(byteArrayOf(FirmwareProtocol.PREPARE_WAKE))
-                    withTimeout(25_000) {
-                        while (true) {
-                            val wake = info()
-                            requireStationary(wake)
-                            require(wake.state == 5) { "Préparation de la mise à jour interrompue." }
-                            if (wake.wakeComplete) break
-                            delay(250)
-                        }
-                    }
-                }
+                phase(UpdatePhase.WAKING, "Maintien de l’alimentation : trois impulsions lentes à 2 km/h…")
+                client.firmwareControl(byteArrayOf(FirmwareProtocol.PREPARE_WAKE))
+                // Download and transfer overlap the finite wake train.
                 phase(UpdatePhase.DOWNLOADING, "Téléchargement GitHub et contrôle SHA-256…")
                 coroutineScope {
                     val downloadDone = CompletableDeferred<Unit>()
-                    val heartbeat = if (old.wakeSupported) launch {
+                    val heartbeat = launch {
                         while (!downloadDone.isCompleted) {
                             withTimeoutOrNull(5_000) { downloadDone.await() }
                             if (!downloadDone.isCompleted) {
@@ -87,12 +78,11 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                                 client.firmwareControl(byteArrayOf(FirmwareProtocol.PREPARE_WAKE))
                             }
                         }
-                    } else null
+                    }
                     try {
                         withContext(Dispatchers.IO) {
                             repository.download(release, file) { received ->
                                 ensureActive()
-                                requireStationaryGps()
                                 FirmwareUpdateStore.update { it.copy(progress = received.toFloat() / release.size,
                                     detail = "Téléchargement GitHub : $received / ${release.size} octets · SHA-256 en cours") }
                             }
@@ -101,7 +91,7 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                         downloadDone.complete(Unit)
                         // Let any in-flight GATT operation finish before BEGIN; cancelling it
                         // would deliberately disconnect the client to reject stale callbacks.
-                        heartbeat?.join()
+                        heartbeat.join()
                     }
                 }
                 phase(UpdatePhase.PREPARING, "Contrôle d’immobilité · préparation de l’installation…")
@@ -109,30 +99,15 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                 client.firmwareControl(FirmwareProtocol.begin(release.size, release.sha256, release.versionCode))
                 require(info().state == 1) { "L’ESP32 n’a pas préparé l’installation." }
                 phase(UpdatePhase.TRANSFERRING, "Transfert Bluetooth vers l’ESP32…")
-                file.inputStream().use { input ->
-                    var offset = 0
-                    val buffer = ByteArray(client.firmwareChunkSize)
-                    var lastStatusOffset = 0
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val length = input.read(buffer)
-                        if (length < 0) break
-                        requireStationaryGps()
-                        client.firmwareData(FirmwareProtocol.chunk(offset, buffer, length))
-                        offset += length
-                        FirmwareUpdateStore.update { it.copy(progress = offset.toFloat() / release.size,
-                            detail = "Transfert : $offset / ${release.size} octets (${offset * 100 / release.size} %)" ) }
-                        if (offset - lastStatusOffset >= 16_384 || offset == release.size) {
-                            val status = info()
-                            require(status.state == 1 && status.received == offset) { "Progression ESP32 incohérente." }
-                            lastStatusOffset = offset
-                        }
-                    }
+                FirmwareTransfer(SystemClock::elapsedRealtime).send(file, release.size,
+                    client.firmwareChunkSize, client::firmwareData, { info() }) { durable, speed ->
+                    FirmwareUpdateStore.update { it.copy(progress = durable.toFloat() / release.size,
+                        detail = "Transfert : $durable / ${release.size} octets (${durable * 100 / release.size} %) · %.1f Ko/s".format(speed)) }
                 }
                 phase(UpdatePhase.VERIFYING, "Vérification SHA-256 sur l’ESP32 et validation de l’image…")
                 client.firmwareControl(byteArrayOf(FirmwareProtocol.FINISH))
                 require(info().state == 2) { "Le firmware n’a pas été validé par l’ESP32." }
-                requireStationaryGps()
+                awaitWakeComplete()
                 val previousConnection = client.connectionEpoch
                 phase(UpdatePhase.RESTARTING, "Redémarrage et reconnexion de l’ESP32…")
                 client.firmwareControl(byteArrayOf(FirmwareProtocol.ACTIVATE))
@@ -162,8 +137,20 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
                     else e.message ?: "Installation impossible. Vérifiez l’alimentation et la connexion Bluetooth.")
             } finally {
                 file.delete()
-                client.lockFirmwareDevice(false)
+                withContext(NonCancellable) {
+                    runCatching { client.firmwareTransferPriority(false) }
+                    client.lockFirmwareDevice(false)
+                }
             }
+        }
+    }
+
+    private suspend fun awaitWakeComplete() = withTimeout(25_000) {
+        while (true) {
+            val wake = info()
+            requireStationary(wake)
+            if (wake.wakeComplete) break
+            delay(250)
         }
     }
 
@@ -172,19 +159,13 @@ class FirmwareUpdater(private val scope: CoroutineScope, private val client: Bik
     }
 
     private suspend fun info(allowError: Boolean = false): FirmwareInfo {
-        val status = client.readFirmwareInfo() ?: error("Première installation OTA par USB nécessaire.")
+        val status = client.readFirmwareInfo() ?: error("Connexion OTA indisponible.")
         if (!allowError && status.state == 4) error(FirmwareProtocol.errorMessage(status.error))
         return status
     }
 
     private fun requireStationary(info: FirmwareInfo) {
-        require(info.stationary) { "Immobilisez le VAE pendant dix secondes avant la mise à jour." }
-        requireStationaryGps()
-    }
-
-    private fun requireStationaryGps() {
-        val ride = RideStateStore.state.value
-        require(!ride.gpsSpeedValid || ride.gpsSpeedKmh < 1f) { "Mouvement GPS détecté : mise à jour annulée." }
+        require(info.stationary) { "Immobilisez la roue pendant dix secondes avant la mise à jour." }
     }
 
     private fun phase(phase: UpdatePhase, detail: String, progress: Float = 0f) {

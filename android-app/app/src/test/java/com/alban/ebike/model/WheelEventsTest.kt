@@ -7,43 +7,47 @@ import java.nio.ByteOrder
 
 class WheelEventsTest {
     private fun frame(seq: Int = 1, kind: Int = 1, session: Long = 42, at: Long = 1_000_000,
-        wheelAt: Long = at, period: Long = 424800, flags: Int = 25): List<ByteArray> {
-        val payload = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN).apply {
+        wheelAt: Long = at, period: Long = 424800, flags: Int = 9): ByteArray {
+        val payload = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN).apply {
             putLong(session); putLong(at); putLong(wheelAt); putLong(at - 10000)
-            putInt(period.toInt()); putInt(424800); putInt(10); putInt(9)
-            putInt(3); putInt(2); putShort(2360); put(flags.toByte()); put(1); putInt(4)
+            putInt(period.toInt()); putInt(424800); putInt(10)
+            putShort(2360); put(flags.toByte()); put(1)
         }.array()
-        return (0..3).map { part -> ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN).apply {
-            put(2); put(((kind shl 4) or part).toByte()); putShort(seq.toShort())
-            put(payload, part * 16, 16)
-        }.array() }
+        return ByteBuffer.allocate(52).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put(3); put(kind.toByte()); putShort(seq.toShort()); put(payload)
+        }.array()
     }
-    private fun decode(frames: List<ByteArray>, receive: Long = 1000): BikeTelemetry {
-        val decoder = WheelEventDecoder()
-        return frames.mapNotNull { decoder.accept(it, receive) }.single()
-    }
-    @Test fun fixedMtu23FragmentsDecodeIntervalsNotReceptionSpacing() {
-        val decoder = WheelEventDecoder()
-        val frames = frame()
-        assertTrue(frames.all { it.size == 20 })
-        assertNull(decoder.accept(frames[0], 1000)); assertNull(decoder.accept(frames[1], 1100))
-        assertNull(decoder.accept(frames[2], 1300))
-        val p = decoder.accept(frames[3], 1500)!!
+    private fun decode(packet: ByteArray): BikeTelemetry = WheelEventDecoder().accept(packet)!!
+    @Test fun currentEventCarriesIndependentWheelAndMotorPeriods() {
+        val packet = frame()
+        assertEquals(52, packet.size)
+        val p = decode(packet)
         assertEquals(20f, p.wheelSpeedKmh, .001f)
         assertEquals(20f, p.motorSpeedKmh, .001f)
         assertEquals(1_000_000L, p.wheelTimeUs)
-        assertEquals(3L, p.rejectedEdges)
-        assertEquals(4L, p.telemetryDrops)
         assertTrue(p.motorTimeValid)
-        assertNull(BleProtocol.decodeTelemetry(frames[0]))
     }
-    @Test fun incompleteWrongOrderAndTimedOutFragmentsCannotBecomeMeasurements() {
-        val d = WheelEventDecoder(); val f = frame()
-        assertNull(d.accept(f[0], 0)); assertNull(d.accept(f[2], 1)); assertNull(d.accept(f[3], 2))
-        assertNull(d.accept(f[0], 100)); assertNull(d.accept(f[1], 1101))
-        assertNull(d.accept(f[2], 1102)); assertNull(d.accept(f[3], 1103))
-        assertNull(d.accept(f[0].copyOf(19), 0))
-        assertNull(d.accept(f[0].clone().apply { this[0] = 3 }, 0))
+    @Test fun modeBitsPeriodsAndUnsignedRevolutionsAreIndependent() {
+        val packet = frame(flags = 15)
+        ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putInt(36, 283200); putInt(40, 369391); putInt(44, -1)
+        }
+        val p = decode(packet)
+        assertTrue(p.wheelMoving); assertTrue(p.simulatedOutput); assertTrue(p.speedMode)
+        assertTrue(p.motorTimeValid)
+        assertEquals(30f, p.wheelSpeedKmh, .001f); assertEquals(23f, p.motorSpeedKmh, .001f)
+        assertEquals(4294967295L, p.wheelRevolutions)
+        val standard = decode(frame(flags = 1))
+        assertFalse(standard.simulatedOutput); assertFalse(standard.speedMode); assertFalse(standard.motorTimeValid)
+    }
+    @Test fun truncatedOversizedUnsupportedOrMalformedEventsAreRejected() {
+        val d = WheelEventDecoder(); val p = frame()
+        for (length in listOf(0, 20, 48, 51, 53, 64)) assertNull(d.accept(p.copyOf(length)))
+        assertNull(d.accept(p.clone().apply { this[0] = 2 }))
+        assertNull(d.accept(p.clone().apply { this[1] = 4 }))
+        assertNull(d.accept(frame(wheelAt = 2_000_000)))
+        assertNull(d.accept(frame(period = 1)))
+        assertNull(d.accept(frame(flags = 255)))
     }
     @Test fun sessionSequenceLossDuplicatesDelayedAndReboot() {
         val c = WheelEventClock()
@@ -51,7 +55,6 @@ class WheelEventsTest {
         val initial = c.accept(decode(frame(seq = 65534, kind = 2)), 10000)!!
         assertEquals(10000L, initial.mappedEventMs)
         val next = c.accept(decode(frame(seq = 0, at = 1_424_800)), 10500)!!
-        assertEquals(1L, next.lostEvents)
         assertEquals(10424L, next.mappedWheelMs)
         assertNull(c.accept(decode(frame(seq = 0, at = 1_424_800)), 11000))
         assertNull(c.accept(decode(frame(seq = 65535, at = 1_400_000)), 11000))

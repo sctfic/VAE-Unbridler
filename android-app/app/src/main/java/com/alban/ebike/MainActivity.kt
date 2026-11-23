@@ -85,7 +85,6 @@ class MainActivity : ComponentActivity() {
                     onToggleMode = {
                         when {
                             !rideState.bluetoothReady -> Toast.makeText(this, "Connectez l’ESP32 pour changer de mode", Toast.LENGTH_SHORT).show()
-                            !rideState.modeSupported -> Toast.makeText(this, "Mise à jour du firmware ESP32 nécessaire", Toast.LENGTH_LONG).show()
                             else -> RideService.toggleMode(this, profileId)
                         }
                     },
@@ -271,10 +270,7 @@ class MainActivity : ComponentActivity() {
         runCatching {
             getSystemService(CompanionDeviceManager::class.java)
                 .startObservingDevicePresence(address)
-        }.onSuccess {
-            android.util.Log.i("EBikeAutoOpen", "Companion presence observation registered")
         }.onFailure {
-            android.util.Log.e("EBikeAutoOpen", "Unable to observe companion presence", it)
             Toast.makeText(this, "Ouverture automatique non activée : réassocier l’ESP32.", Toast.LENGTH_LONG).show()
         }
     }

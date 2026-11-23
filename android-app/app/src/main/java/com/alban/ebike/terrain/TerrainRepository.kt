@@ -16,7 +16,6 @@ import kotlin.math.*
 class TerrainRepository(context: Context, private val onBytes: (Int) -> Unit = {}) {
     private val ign = IgnTerrainSource(context, onBytes)
     private val cache = File(context.filesDir, "terrain-v1")
-    private val legacyCache = File(context.cacheDir, "terrain-v1")
     private val memory = object : LinkedHashMap<TileKey, FloatArray>(24, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TileKey, FloatArray>?) = size > 24
     }
@@ -105,7 +104,7 @@ class TerrainRepository(context: Context, private val onBytes: (Int) -> Unit = {
         memory[key]?.let { return it to false }
         check(cache.isDirectory || cache.mkdirs())
         val file = File(cache, key.fileName)
-        val existing = if (file.exists()) file else File(legacyCache, key.fileName)
+        val existing = file
         if (existing.exists()) {
             decode(existing.readBytes())?.let { memory[key] = it; existing.setLastModified(System.currentTimeMillis()); return it to false }
             existing.delete()

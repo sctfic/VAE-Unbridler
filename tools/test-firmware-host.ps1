@@ -14,7 +14,7 @@ $build = Join-Path $root 'firmware-esp32/build/host-tests'
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 Push-Location $build
 try {
-    foreach ($name in @('speed_model', 'wheel_period_filter', 'turbo_confirmation', 'pulse_generator', 'ota_policy', 'ota_service')) {
+    foreach ($name in @('speed_model', 'wheel_period_filter', 'turbo_confirmation', 'pulse_generator', 'ota_policy', 'ota_stream_buffer', 'ota_service')) {
         $arguments = @('/nologo', '/EHsc', '/std:c++17', '/W4', '/D_CRT_SECURE_NO_WARNINGS',
             "/I$root/firmware-esp32/tests/host", "/I$root/firmware-esp32/main/include",
             "$root/firmware-esp32/tests/${name}_test.cpp", "/Fe:${name}_test.exe")

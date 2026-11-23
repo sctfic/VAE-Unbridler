@@ -19,7 +19,6 @@ class BikeCompanionService : CompanionDeviceService() {
 
     private fun appeared() {
         if (PresenceWatchdog.blocked(this)) return
-        android.util.Log.i("EBikeAutoOpen", "Associated ESP32 appeared")
         RideService.start(this)
     }
 

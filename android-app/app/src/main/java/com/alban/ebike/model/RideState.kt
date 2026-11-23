@@ -19,15 +19,11 @@ data class TrackPoint(
     val speedApproximate: Boolean = false,
     val speedSource: String? = null,
     val accuracyM: Float? = null,
-    val rawAltitudeM: Double? = null,
-    val rawSpeedKmh: Float? = null,
-    val positionValid: Boolean = true,
     val wheelSpeedKmh: Float? = null,
     val motorSpeedKmh: Float? = null,
     val altitudeSource: String? = null,
     val altitudeUncertaintyM: Float? = null,
     val altitudeSegmentStart: Boolean = false,
-    val gradeEstimatePercent: Float? = null,
     val elevationLossM: Float? = null,
 )
 
@@ -44,7 +40,6 @@ data class RideUiState(
     val wheelTelemetryCoherent: Boolean = true,
     val motorTelemetryCoherent: Boolean = true,
     val speedMode: Boolean = false,
-    val modeSupported: Boolean = false,
     val bluetoothReady: Boolean = false,
     val espDetected: Boolean = false,
     val bluetoothStatus: String = "Recherche ESP32",

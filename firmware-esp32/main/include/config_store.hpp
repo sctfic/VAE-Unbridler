@@ -4,7 +4,6 @@
 #include "freertos/FreeRTOS.h"
 
 namespace ebike {
-
 class ConfigStore {
   public:
     void begin();
@@ -21,5 +20,4 @@ class ConfigStore {
     RuntimeConfig config_{};
     bool speed_enabled_ = false;
 };
-
 }  // namespace ebike

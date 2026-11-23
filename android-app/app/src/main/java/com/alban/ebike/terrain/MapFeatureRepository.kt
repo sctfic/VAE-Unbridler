@@ -2,7 +2,6 @@ package com.alban.ebike.terrain
 
 import android.content.Context
 import android.os.SystemClock
-import android.util.Log
 import com.alban.ebike.scene.GeoFrame
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -58,7 +57,7 @@ class MapFeatureRepository(context: Context, private val onBytes: (Int) -> Unit 
                     json.getDouble("half"), json.getBoolean("detailed"), emptyList())
                 if (!covers(header)) null else header.copy(features = parse(json.getJSONObject("data")))
             }.getOrNull()
-            if (area != null) { memory = area; file.setLastModified(System.currentTimeMillis()); progress("OSM · cache disque décodé"); Log.i("EBikeMap", "OSM cache reused"); return@withContext area }
+            if (area != null) { memory = area; file.setLastModified(System.currentTimeMillis()); progress("OSM · cache disque décodé"); return@withContext area }
         }
         if (SystemClock.elapsedRealtime() < retryAt || abs(lat) > 84) { progress("OSM · temporisation / zone indisponible"); return@withContext null }
         val fetchHalf = half * 1.2
@@ -100,14 +99,12 @@ class MapFeatureRepository(context: Context, private val onBytes: (Int) -> Unit 
                     if (File(cache, file.name + ".pin").exists()) continue
                     val length = file.length(); if (file.delete()) total -= length
                 }
-            }.onFailure { Log.w("EBikeMap", "OSM cache write failed", it) }.isSuccess
-            Log.i("EBikeMap", "OSM loaded: ${area.features.count { !it.water }} roads, ${area.features.count { it.water }} waterways")
+            }.isSuccess
             if (!saved) memory = null
             area.copy(complete = saved)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             retryAt = SystemClock.elapsedRealtime() + 120_000
-            Log.w("EBikeMap", "OSM unavailable; preserving existing layers", error)
             progress("OSM · échec réseau, couches conservées")
             null
         }

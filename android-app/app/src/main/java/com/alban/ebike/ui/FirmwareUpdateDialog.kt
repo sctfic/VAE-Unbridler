@@ -58,7 +58,6 @@ fun FirmwareUpdateDialog(firmware: FirmwareUpdateUi, ride: RideUiState, onDismis
                         firmware.info?.supported != true -> "Ce firmware ne permet pas encore l’OTA. Une première installation par USB est nécessaire."
                         !firmware.info.bootConfirmed -> "Validation du démarrage ESP32 en cours…"
                         !firmware.info.stationary -> "Installation bloquée : immobilisez la roue pendant dix secondes."
-                        ride.gpsSpeedValid && ride.gpsSpeedKmh >= 1f -> "Installation bloquée : mouvement détecté par le GPS."
                         firmware.available -> "VAE immobile : vous pouvez installer la mise à jour."
                         else -> "Aucune version plus récente à installer."
                     })
@@ -84,7 +83,7 @@ fun FirmwareUpdateDialog(firmware: FirmwareUpdateUi, ride: RideUiState, onDismis
         },
         confirmButton = {
             if (!firmware.busy && firmware.available) TextButton(onClick = onInstall,
-                enabled = firmware.canInstall && ride.bluetoothReady && (!ride.gpsSpeedValid || ride.gpsSpeedKmh < 1f)) {
+                enabled = firmware.canInstallFor(ride)) {
                 Text("Installer ${firmware.release?.version}")
             }
         },

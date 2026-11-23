@@ -4,7 +4,6 @@ import android.content.Context
 import android.opengl.GLES20.*
 import android.opengl.GLSurfaceView
 import android.os.SystemClock
-import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -20,7 +19,6 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
     var onResetRequested: () -> Unit = {}
     var onViewModeRequested: () -> Unit = {}
     var onOptionsRequested: () -> Unit = {}
-    var onFrameReady: (Long) -> Unit = {}
     var onInteractionChanged: (Boolean) -> Unit = {}
     private val scaleGestures = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -80,7 +78,6 @@ class RideSceneView(context: Context) : GLSurfaceView(context) {
         }
     }
     init {
-        sceneRenderer.onFrameReady = { milliseconds -> post { onFrameReady(milliseconds) } }
         setEGLContextClientVersion(2)
         setEGLConfigChooser(8, 8, 8, 0, 24, 0)
         preserveEGLContextOnPause = true
@@ -105,7 +102,6 @@ data class CameraPose(val heading: Double = 0.0, val tilt: Double = TrackCamera.
 
 private class SceneRenderer(private val density: Float) : GLSurfaceView.Renderer {
     @Volatile var visibleLabels: List<com.alban.ebike.terrain.ScreenLabel> = emptyList()
-    var onFrameReady: (Long) -> Unit = {}
     val orbit = SceneOrbit()
     var grade = 0f
     var selectedPosition: WorldPoint? = null
@@ -167,7 +163,7 @@ private class SceneRenderer(private val density: Float) : GLSurfaceView.Renderer
             uniforms.clear()
             listOf("u_center", "u_camera", "u_color", "u_points", "u_size", "u_lift", "u_tilt", "u_targetY", "u_sunlight", "u_viewport", "u_ribbonWidth").forEach { uniforms[it] = glGetUniformLocation(program, it) }
             val widths = FloatArray(2); glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, widths, 0); maxLineWidth = widths[1]
-        } catch (error: Exception) { program = 0; Log.e("EBikeScene", "GL initialization failed", error) }
+        } catch (error: Exception) { program = 0 }
         glClearColor(.018f, .038f, .064f, 1f)
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL)
@@ -177,7 +173,6 @@ private class SceneRenderer(private val density: Float) : GLSurfaceView.Renderer
         glViewport(0, 0, width, height); aspect = width.toDouble() / height.coerceAtLeast(1)
     }
     override fun onDrawFrame(gl: GL10?) {
-        val started = SystemClock.uptimeMillis()
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         val next = pending
         val changed = next != null && next !== mesh
@@ -337,7 +332,6 @@ private class SceneRenderer(private val density: Float) : GLSurfaceView.Renderer
         draw(4, GL_POINTS, floatArrayOf(.9f, 1f, 1f, 1f), pointSize = 7f)
         glEnable(GL_DEPTH_TEST); glDepthMask(true)
         glDisableVertexAttribArray(positionHandle)
-        if (changed) onFrameReady(SystemClock.uptimeMillis() - started)
     }
 
     companion object {

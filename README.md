@@ -1,12 +1,12 @@
-> Android 0.4.26 (code 34), firmware matériel V1 1.0.5 (code OTA 4).
+> Android 0.4.28 (code 36), firmware matériel V1 1.0.6 (code OTA 5).
 > Acquisition/confirmation ESP32 et lissage d’affichage Android sont séparés ;
-> voir [les événements BLE v2 et la validation](BLE_EVENTS_V2.md).
+> voir [le protocole BLE courant](BLE_PROTOCOL.md).
 
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.26** — auteur **Lopez Alban**.
+Version Android **0.4.28** — auteur **Lopez Alban**.
 
-Le panneau DEBUG de la carte détaille les étapes et durées de chargement.
+Les journaux GPS, trajet et Bluetooth ainsi que le panneau DEBUG sont supprimés.
 Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les changements 0.4.23](RELEASE_0.4.23.md).
 
 Un appui long sur la scène 3D ouvre les options d'affichage : lignes de niveau,
@@ -58,49 +58,13 @@ La liaison directe suppose une entrée moteur à rappel 3,3 V compatible, une ma
 
 ## Installer l'application Android
 
-### Diagnostic GPS et journal local
+### Vitesse et données du trajet
 
-La grande vitesse privilégie le GPS valide ou estimé (effet glitch), puis la roue si le Bluetooth est connecté
-(libellé **ROUE**), sinon affiche un tiret. Une vitesse roue positive et cohérente prend la priorité sur un zéro GPS valide.
-Le bas du cadran affiche fournisseur, précision horizontale, âge de la mesure,
-vitesse brute, incertitude de vitesse et décision du filtre. Sans mesures, il affiche
-l’état de la localisation système et le temps depuis le dernier retour du fournisseur.
-
-Le journal privé `files/gps-logs/gps-current.log` conserve ces diagnostics, les erreurs
-d’abonnement et les démarrages/arrêts ; horodatages Unix en millisecondes, aucune
-latitude/longitude. Écriture en arrière-plan, rotation à 4 Mio et deux archives
-(`gps-1.log`, `gps-2.log`) : environ 12 Mio maximum. Les plus anciens événements
-sont remplacés ; une surcharge extrême peut perdre des lignes. Les logs survivent
-au redémarrage et à une mise à jour, mais pas à la désinstallation/effacement des données.
-
-Depuis la 0.4.18, ce même journal conserve chaque télémétrie BLE reçue : séquence,
-temps de fonctionnement de l'ESP32, périodes roue/moteur, vitesses, compteurs de
-tours et d'impulsions, circonférence et mode. La vitesse GPS et sa validité sont
-ajoutées pour comparer les mesures au même instant, sans coordonnées. Les étapes
-de connexion BLE sont également conservées. Les anciennes versions ne permettaient
-pas de diagnostiquer une perte d'impulsions à partir du seul journal GPS.
-
-Avec le firmware correspondant, les lignes `SENSOR` ajoutent `rawIntervalUs`
-(dernier intervalle brut entre fronts descendants GPIO 5, avant filtrage),
-`edges`, `rejectedEdges` et `queueDroppedEdges`. Les lignes `BLE` indiquent
-`wheelUs` (intervalle retenu) et `motorUs` (intervalle commandé), en microsecondes.
-Les diagnostics bruts sont des instantanés à 5 Hz ; ils ne constituent pas une
-trace exhaustive de tous les fronts. Les numéros `seq` associent les deux lignes.
-
-Le [correctif Hardware v1 / app 0.4.18](RELEASE_0.4.18.md) décrit les limites du
-diagnostic et les essais à effectuer sur le vélo.
-
-Au prochain branchement USB avec débogage autorisé, récupérer chaque fichier présent
-avec la version debug installée, sans réinstaller/effacer l’application :
-
-```powershell
-adb shell run-as com.alban.ebike ls files/gps-logs
-adb exec-out run-as com.alban.ebike cat files/gps-logs/gps-current.log > gps-current.log
-adb exec-out run-as com.alban.ebike cat files/gps-logs/gps-1.log > gps-1.log
-adb exec-out run-as com.alban.ebike cat files/gps-logs/gps-2.log > gps-2.log
-```
-
-Les archives n’existent qu’après rotation. Ces fichiers restent locaux, sans envoi réseau.
+La grande vitesse privilégie le GPS valide ou estimé, puis la roue connectée.
+Une vitesse roue positive prend la priorité sur un zéro GPS valide.
+La trace, le profil et les valeurs historiques nécessaires au tableau de bord
+restent en mémoire pendant le trajet. Aucun journal GPS/CSV/Bluetooth n'est écrit,
+exporté ou transmis ; le firmware ne produit plus de logs.
 
 1. Ouvrir le dossier `android-app` dans Android Studio et attendre la fin de la synchronisation Gradle.
 2. Activer les options développeur et le débogage USB sur le téléphone, puis le brancher.
@@ -112,7 +76,7 @@ Le GPS démarre à l’ouverture de l’application une fois la localisation pr�
 
 Le bouton **ESP32** est gris hors connexion et cyan gras lorsqu’il est connecté. La vitesse GPS privilégie la mesure native Android. En son absence ou si elle est refusée, une régression pondérée des coordonnées sur les six dernières secondes fournit une estimation signalée par des bandes de chiffres décalées aléatoirement. Trois positions sur au moins deux secondes sont nécessaires ; les positions périmées, imprécises ou incohérentes restent rejetées. Le départ demande trois mesures sur au moins 1,5 seconde et un déplacement supérieur à l’incertitude cumulée. L’incertitude maximale vaut 1 m/s au départ, puis 30 % de la vitesse (bornée entre 1 et 3 m/s) en mouvement. Une médiane de trois mesures et un filtre exponentiel court atténuent les pics. Un arrêt bien mesuré remet immédiatement le filtre à zéro ; les petites vitesses ambiguës demandent deux mesures consécutives. Ces seuils peuvent masquer les déplacements très lents.
 
-Une vitesse temporairement incertaine est maintenue au maximum deux secondes, avec la mention **maintien** dans le diagnostic, puis utilise la régression positionnelle (repli roue connectée si aucune estimation, sinon **—**). Sans nouveau fix, le délai de péremption reste de quatre secondes. La trace et la distance sont validées séparément : des positions cohérentes continuent le parcours même sans vitesse native fiable. Un déplacement positionnel doit dépasser l’incertitude sur une fenêtre bornée ; un arrêt confirmé fige la distance. Seuls une perte de positions de plus de quatre secondes, un point invalide ou un saut excessif créent une interruption. Le journal GPS indique désormais `trace`, `append`, `segmentStart` et `stepM` pour diagnostiquer chaque décision. Ce filtre ne remplace pas un essai réel à l’extérieur.
+Une vitesse temporairement incertaine est maintenue au maximum deux secondes, puis utilise la régression positionnelle (repli roue connectée si aucune estimation, sinon **—**). Sans nouveau fix, le délai de péremption reste de quatre secondes. La trace et la distance sont validées séparément : des positions cohérentes continuent le parcours même sans vitesse native fiable. Un déplacement positionnel doit dépasser l’incertitude sur une fenêtre bornée ; un arrêt confirmé fige la distance. Seuls une perte de positions de plus de quatre secondes, un point invalide ou un saut excessif créent une interruption. Ce filtre ne remplace pas un essai réel à l’extérieur.
 
 Après association, la présence de l’ESP32 peut aussi démarrer le service ; pour ce démarrage en arrière-plan, accorder la localisation « Toujours autoriser ». Android peut empêcher une application d'ouvrir une fenêtre depuis l'arrière-plan selon la version du système ou le fabricant ; dans ce cas, la notification persistante **E-Bike** ouvre le tableau de bord en un toucher.
 
@@ -144,11 +108,14 @@ Remplacer `COM4` par le port réellement attribué à la carte. Si l'envoi ne d�
 Firmware OTA V1.0 : `firmware-esp32/build/ota-v1/ebike_firmware_hw_v1.bin`.
 Compiler et préparer les fichiers OTA avec `./tools/build-firmware-ota.ps1` depuis ESP-IDF PowerShell.
 
-## OTA — application 0.4.23 et matériel V1.0
+## OTA — firmware 1.0.6 et application 0.4.28
 
-Le nom personnalisé du VAE clignote lorsqu’un firmware V1.0 plus récent est
-disponible sur GitHub. Le toucher propose l’installation après dix secondes
-d’immobilité et affiche les six étapes de progression avec l’avertissement de
-ne pas utiliser le VAE. Les partitions `ota_0` et `ota_1` alternent à chaque mise
-à jour. Une première installation USB du firmware 1.0.2 et du nouveau bootloader
-est nécessaire. Voir [OTA.md](OTA.md) pour la mise en service et la publication.
+Le nom du VAE clignote lorsqu'un firmware plus récent est disponible. La recherche
+est automatique. L'installation demande dix secondes sans mouvement du capteur
+de roue d'origine ; le GPS ne bloque pas l'OTA. La LED alterne orange et violet,
+et trois impulsions à 2 km/h s'exécutent pendant le téléchargement et le transfert.
+
+Un seul protocole rapide est implémenté, sans rétrocompatibilité. Pour le premier
+passage, installer le firmware 1.0.6 par OTA avec l'application actuelle, puis
+installer l'APK 0.4.28. La carte est déjà préparée pour l'OTA ; aucun flash USB
+n'est requis. Voir [OTA.md](OTA.md) et [les changements 1.0.6](RELEASE_ESP32_1.0.6.md).

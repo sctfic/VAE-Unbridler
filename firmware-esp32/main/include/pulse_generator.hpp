@@ -10,7 +10,6 @@
 #include "freertos/semphr.h"
 
 namespace ebike {
-
 class TelemetryStore;
 
 // GPIO 6 is an active-low open-drain contact for a compatible 3.3 V input.
@@ -20,7 +19,6 @@ class PulseGenerator : public OtaWakeOutput {
     explicit PulseGenerator(TelemetryStore& telemetry);
 
     void begin();
-    void emit_passthrough(uint32_t interval_us, uint16_t speed_centi_kmh);
     void set_output_interval(uint32_t interval_us, uint16_t speed_centi_kmh, bool simulated);
     void stop();
     void retain_until(int64_t esp_deadline_us);
@@ -59,5 +57,4 @@ class PulseGenerator : public OtaWakeOutput {
     volatile uint32_t simulated_interval_us_ = 0;
     volatile uint16_t simulated_speed_centi_kmh_ = 0;
 };
-
 }  // namespace ebike

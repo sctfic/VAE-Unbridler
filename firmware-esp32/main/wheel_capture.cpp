@@ -2,13 +2,11 @@
 
 #include "driver/gpio.h"
 #include "esp_attr.h"
-#include "esp_log.h"
 #include "esp_timer.h"
 #include "speed_model.hpp"
 
 namespace ebike {
 namespace {
-constexpr char kTag[] = "wheel";
 constexpr TickType_t kTaskWaitTicks = pdMS_TO_TICKS(20);
 }  // namespace
 
@@ -34,7 +32,6 @@ void WheelCapture::begin() {
     BaseType_t created = xTaskCreatePinnedToCore(&WheelCapture::task_entry, "wheel_rt", 4096, this,
                                                   configMAX_PRIORITIES - 2, nullptr, 1);
     configASSERT(created == pdPASS);
-    ESP_LOGI(kTag, "GPIO %d ready on real-time core", kWheelSensorPin);
 }
 
 void IRAM_ATTR WheelCapture::gpio_isr(void* context) {
@@ -42,15 +39,9 @@ void IRAM_ATTR WheelCapture::gpio_isr(void* context) {
     const int64_t timestamp_us = esp_timer_get_time();
     self->pulse_.cancel_ota_wake_from_isr();
     self->telemetry_.record_wheel_edge_from_isr(timestamp_us);
-    const bool interval_valid = self->last_isr_edge_us_ >= 0;
-    const int64_t raw_interval = interval_valid ? timestamp_us - self->last_isr_edge_us_ : 0;
-    const uint32_t interval_us = raw_interval > UINT32_MAX ? UINT32_MAX :
-        static_cast<uint32_t>(raw_interval);
-    self->last_isr_edge_us_ = timestamp_us;
     BaseType_t higher_priority_task_woken = pdFALSE;
-    const BaseType_t queued = xQueueSendFromISR(self->edge_queue_, &timestamp_us,
+    xQueueSendFromISR(self->edge_queue_, &timestamp_us,
                                                 &higher_priority_task_woken);
-    self->telemetry_.record_sensor_edge_from_isr(interval_us, interval_valid, queued != pdTRUE);
     if (higher_priority_task_woken == pdTRUE) {
         portYIELD_FROM_ISR();
     }
@@ -63,16 +54,9 @@ void WheelCapture::task_entry(void* context) {
 void WheelCapture::task() {
     bool previous_speed_mode = config_.speed_enabled();
     RuntimeConfig previous_config = config_.snapshot();
-    uint32_t logged_emitted = 0;
     while (true) {
         pulse_.service_ota_wake();
         telemetry_.wheel_task_heartbeat(esp_timer_get_time());
-        const auto diagnostic = telemetry_.snapshot();
-        if (diagnostic.emitted_pulses != logged_emitted) {
-            logged_emitted = diagnostic.emitted_pulses;
-            ESP_LOGD(kTag, "motor emitted=%lu actualAt=%llu command=%lu", (unsigned long)logged_emitted,
-                (unsigned long long)diagnostic.emitted_motor_us, (unsigned long)diagnostic.motor_interval_us);
-        }
         const bool speed_mode = config_.speed_enabled();
         const RuntimeConfig current = config_.snapshot();
         if (period_filter_.expired(esp_timer_get_time())) mark_stopped();
@@ -109,13 +93,10 @@ void WheelCapture::task() {
 void WheelCapture::handle_edge(int64_t edge_us) {
     const RuntimeConfig config = config_.snapshot();
     const bool turbo = config_.speed_enabled();
-    const int64_t candidate_us = period_filter_.last_edge_us() < 0 ? 0 : edge_us - period_filter_.last_edge_us();
     const auto result = period_filter_.accept(edge_us, config.circumference_mm);
     if (result == WheelPeriodFilter::Result::ignored) {
-        telemetry_.record_rejected_edge();
         confirmation_.reject();
-        ESP_LOGD(kTag, "at=%lld candidate=%lld raw=%lu rejected retained=%lu", edge_us, candidate_us,
-            (unsigned long)telemetry_.snapshot().sensor_interval_us, (unsigned long)period_filter_.interval_us());
+
         telemetry_.record_event(edge_us, turbo, 2, confirmation_.state());
         return;
     }
@@ -143,9 +124,7 @@ void WheelCapture::handle_edge(int64_t edge_us) {
                                               confirmed, turbo);
         pulse_.set_output_interval(command.motor_interval_us, command.motor_speed_centi_kmh, command.simulated);
     }
-    ESP_LOGD(kTag, "accepted at=%lld candidate=%lld wheel=%lu confirmation=%u command=%lu", edge_us, candidate_us,
-        (unsigned long)interval_us, confirmation_.state(),
-        (unsigned long)telemetry_.snapshot().motor_interval_us);
+
     telemetry_.record_event(edge_us, turbo, 1, confirmation_.state());
 }
 
@@ -156,5 +135,4 @@ void WheelCapture::mark_stopped() {
     telemetry_.set_stopped(config_.snapshot().circumference_mm);
     telemetry_.record_event(esp_timer_get_time(), config_.speed_enabled(), 2, 0);
 }
-
 }  // namespace ebike

@@ -6,7 +6,6 @@
 #include "status_led.hpp"
 #include "firmware_version.hpp"
 
-#include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,6 +25,8 @@ void boot_guard(void*) {
 }  // namespace
 
 extern "C" void app_main(void) {
+    // Keep the package identity in the binary without a runtime log.
+    asm volatile("" : : "r"(ebike::kFirmwareOtaIdentity));
     const BaseType_t guard_started = xTaskCreate(&boot_guard, "ota_boot_guard", 3072, nullptr, 3, nullptr);
     configASSERT(guard_started == pdPASS);
     static ebike::ConfigStore config;
@@ -33,7 +34,6 @@ extern "C" void app_main(void) {
     ebike::status_led::begin(telemetry);
     const esp_err_t nvs_result = nvs_flash_init();
     if (nvs_result != ESP_OK) {
-        ESP_LOGE("main", "NVS initialization failed: %s", esp_err_to_name(nvs_result));
         ebike::status_led::fault();
         return;
     }
@@ -46,8 +46,4 @@ extern "C" void app_main(void) {
     pulse.begin();
     wheel.begin();
     ble.begin();
-
-    ESP_LOGI("main", "Firmware identity: %s", ebike::kFirmwareOtaIdentity);
-
-    ESP_LOGI("main", "E-Bike firmware ready: GPIO5 wheel, GPIO6 open-drain motor signal (hardware V1.0)");
 }

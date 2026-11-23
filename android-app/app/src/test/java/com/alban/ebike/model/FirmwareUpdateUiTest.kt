@@ -28,4 +28,14 @@ class FirmwareUpdateUiTest {
         assertFalse(ui.copy(phase = UpdatePhase.TRANSFERRING).canInstall)
         assertTrue(ui.copy(phase = UpdatePhase.ERROR).canInstall)
     }
+    @Test fun onlyOriginalWheelMotionBlocksInstallationRegardlessOfGps() {
+        val ui = FirmwareUpdateUi(info, release)
+        for (gpsSpeed in listOf(0f, 2f, 40f, 120f)) {
+            val ride = RideUiState(bluetoothReady = true, gpsSpeedValid = true, gpsSpeedKmh = gpsSpeed)
+            assertTrue(ui.canInstallFor(ride))
+            assertFalse(ui.copy(info = info.copy(flags = 5)).canInstallFor(ride))
+            assertFalse(ui.canInstallFor(ride.copy(bluetoothReady = false)))
+        }
+        assertTrue(ui.canInstallFor(RideUiState(bluetoothReady = true, gpsSpeedValid = false)))
+    }
 }

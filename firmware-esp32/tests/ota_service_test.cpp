@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cstring>
 #include <vector>
+#include <functional>
 #include "ota_service.hpp"
 #include "firmware_version.hpp"
 #include "status_led.hpp"
@@ -13,7 +14,8 @@ esp_partition_t partitions[] = {{16, 0x1e0000}, {17, 0x1e0000}};
 const esp_partition_t* running = &partitions[0];
 const esp_partition_t* selected;
 esp_ota_img_states_t image_states[2];
-bool metadata_exists, restarted, aborted, flash_fails, other_project, update_led;
+bool metadata_exists, restarted, aborted, flash_fails, other_project, update_led, write_active;
+std::function<void()> during_write;
 std::vector<uint8_t> written;
 esp_app_desc_t description = {"1.0.2", "ebike_firmware_hw_v1"};
 const uint8_t sha_abc[32] = {0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
@@ -21,11 +23,11 @@ const uint8_t sha_abc[32] = {0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0
 void reset() {
     clock_us = 20'000'000; running = &partitions[0]; selected = running;
     image_states[0] = ESP_OTA_IMG_VALID; image_states[1] = ESP_OTA_IMG_UNDEFINED;
-    update_led = false;
+    update_led = false; write_active = false; during_write = {};
     metadata_exists = true; restarted = aborted = flash_fails = other_project = false; written.clear();
 }
 std::array<uint8_t, 41> begin_packet(bool valid_hash = true, uint32_t size = 3, uint32_t code = ebike::kFirmwareVersionCode + 1) {
-    std::array<uint8_t, 41> packet{}; packet[0] = 1;
+    std::array<uint8_t, 41> packet{}; packet[0] = 6;
     std::memcpy(packet.data() + 1, &size, 4);
     if (valid_hash) std::memcpy(packet.data() + 5, sha_abc, 32);
     std::memcpy(packet.data() + 37, &code, 4);
@@ -53,7 +55,7 @@ struct Fixture {
     void begin(bool good_hash = true) {
         auto packet = begin_packet(good_hash); assert(ota.control(packet.data(), packet.size()));
     }
-    void verify() { begin(); assert(ota.write(chunk, sizeof(chunk))); assert(ota.control(finish, 1)); }
+    void verify() { begin(); assert(ota.write(chunk, sizeof(chunk))); ota.process_pending(); assert(ota.control(finish, 1)); wake.complete = true; }
     void tick(int64_t advance = 0) {
         clock_us += advance; telemetry.wheel_task_heartbeat(clock_us); ota.tick(true);
     }
@@ -81,9 +83,12 @@ esp_err_t esp_ota_begin(const esp_partition_t* p, size_t, esp_ota_handle_t* hand
 }
 esp_err_t esp_ota_write(esp_ota_handle_t handle, const void* data, size_t size) {
     assert(handle == 1); if (flash_fails) return ESP_FAIL;
-    const auto* bytes = static_cast<const uint8_t*>(data); written.insert(written.end(), bytes, bytes + size); return ESP_OK;
+    write_active = true;
+    const auto* bytes = static_cast<const uint8_t*>(data); written.insert(written.end(), bytes, bytes + size);
+    if (during_write) during_write();
+    write_active = false; return ESP_OK;
 }
-esp_err_t esp_ota_abort(esp_ota_handle_t) { aborted = true; return ESP_OK; }
+esp_err_t esp_ota_abort(esp_ota_handle_t) { assert(!write_active); aborted = true; return ESP_OK; }
 esp_err_t esp_ota_end(esp_ota_handle_t) { return flash_fails ? ESP_FAIL : ESP_OK; }
 esp_err_t esp_ota_get_partition_description(const esp_partition_t*, esp_app_desc_t* output) {
     *output = description;
@@ -109,16 +114,16 @@ int main() {
       f.telemetry.record_wheel_edge_from_isr(clock_us); f.tick(2'000'000);
       assert(!restarted); assert(selected == running); assert(f.ota.status().flags & 4); }
     { Fixture f; f.begin(); f.ota.disconnected(); assert(aborted); assert(selected == running); assert(f.ota.status().error == 6); }
-    { Fixture f; f.begin(false); assert(f.ota.write(chunk, sizeof(chunk)));
+    { Fixture f; f.begin(false); assert(f.ota.write(chunk, sizeof(chunk))); f.ota.process_pending();
       assert(!f.ota.control(finish, 1)); assert(f.ota.status().error == 4); assert(selected == running); }
     { Fixture f; f.begin(); assert(!f.ota.control(finish, 1)); assert(f.ota.status().error == 2); }
-    { Fixture f; f.begin(); uint8_t bad[] = {1, 0, 0, 0, 'a'};
+    { Fixture f; f.begin(); uint8_t bad[] = {3, 0, 0, 0, 'a'};
       assert(!f.ota.write(bad, sizeof(bad))); assert(aborted); }
     { Fixture f; f.begin(); f.tick(30'000'001); assert(aborted); assert(f.ota.status().error == 5); }
     { Fixture f; auto old = begin_packet(true, 3, ebike::kFirmwareVersionCode); assert(!f.ota.control(old.data(), old.size()));
       auto large = begin_packet(true, 0x1e0001); assert(!f.ota.control(large.data(), large.size())); }
-    { Fixture f; f.begin(); flash_fails = true; assert(!f.ota.write(chunk, sizeof(chunk))); assert(f.ota.status().error == 3); }
-    { Fixture f; f.begin(); assert(f.ota.write(chunk, sizeof(chunk))); other_project = true;
+    { Fixture f; f.begin(); flash_fails = true; assert(f.ota.write(chunk, sizeof(chunk))); f.ota.process_pending(); assert(f.ota.status().error == 3); }
+    { Fixture f; f.begin(); assert(f.ota.write(chunk, sizeof(chunk))); f.ota.process_pending(); other_project = true;
       assert(!f.ota.control(finish, 1)); assert(f.ota.status().error == 3); assert(selected == running); }
     { Fixture f; metadata_exists = false; f.tick(); f.tick(10'000'001);
       assert(f.ota.status().flags & 4); assert(selected == running); }
@@ -128,6 +133,8 @@ int main() {
     { Fixture f; running = &partitions[1]; selected = running; image_states[1] = ESP_OTA_IMG_VALID;
       ebike::OtaService next(f.config, f.telemetry, f.wake); next.begin(); auto packet = begin_packet();
       assert(next.control(packet.data(), packet.size())); assert(next.status().target_slot == 0); }
+    { Fixture f; auto packet = begin_packet(); packet[0] = 1;
+      assert(!f.ota.control(packet.data(), packet.size())); assert(f.ota.status().error == 2); }
     const uint8_t prepare[] = {5}, cancel[] = {3};
     { Fixture f; assert(f.ota.status().flags & 8);
       assert(f.ota.control(prepare, 1)); assert(f.ota.status().state == 5 && f.ota.busy());
@@ -140,7 +147,7 @@ int main() {
       f.begin(); assert(f.ota.status().state == 1 && f.wake.requests == 1 && update_led);
       f.ota.control(cancel, 1); assert(f.wake.cancelled && !update_led && !f.ota.busy()); }
     { Fixture f; f.ota.control(prepare, 1); auto packet = begin_packet();
-      assert(!f.ota.control(packet.data(), packet.size())); assert(f.wake.cancelled && !update_led); }
+      assert(f.ota.control(packet.data(), packet.size())); assert(f.ota.status().state == 1 && !f.wake.complete); }
     { Fixture f; f.ota.control(prepare, 1); f.telemetry.record_wheel_edge_from_isr(clock_us);
       f.tick(); assert(f.ota.status().error == 1 && f.wake.cancelled && !update_led); }
     { Fixture f; f.ota.control(prepare, 1); f.ota.disconnected();
@@ -158,4 +165,31 @@ int main() {
       assert(!f.ota.control(prepare, 1) && !update_led); }
     static_assert(ebike::status_led::update_color(true) == 0x180600, "OTA orange");
     static_assert(ebike::status_led::update_color(false) == 0x100010, "OTA purple");
+    // Fast stream: receipt is queued, ACK advances only after a dedicated flash write.
+    { Fixture f; auto packet = begin_packet();
+      assert(f.ota.status().flags & 32); assert(f.ota.control(packet.data(), packet.size()));
+      assert(f.wake.requests == 1 && !f.wake.complete);
+      assert(f.ota.write(chunk, sizeof(chunk))); assert(f.ota.write(chunk, sizeof(chunk)));
+      assert(f.ota.status().received == 0 && written.empty());
+      f.ota.process_pending(); assert(f.ota.status().received == 3 && written.size() == 3);
+      assert(f.ota.control(finish, 1)); assert(!f.ota.control(activate, 1));
+      f.wake.complete = true; assert(f.ota.control(activate, 1)); }
+    { Fixture f; auto packet = begin_packet(); f.ota.control(packet.data(), packet.size());
+      uint8_t gap[] = {1,0,0,0,'b','c'};
+      assert(!f.ota.write(gap, sizeof(gap))); assert(f.ota.status().state == 1);
+      assert(f.ota.write(chunk, sizeof(chunk))); f.ota.process_pending();
+      assert(f.ota.status().received == 3); assert(f.ota.control(finish, 1)); }
+    { Fixture f; auto packet = begin_packet(); f.ota.control(packet.data(), packet.size());
+      f.ota.write(chunk, sizeof(chunk));
+      during_write = [&] {
+          assert(f.ota.control(cancel, 1)); assert(!aborted);
+          assert(!f.ota.control(packet.data(), packet.size()));
+      };
+      f.ota.process_pending(); assert(aborted && f.ota.status().received == 0 && f.ota.status().error == 6); }
+    { Fixture f; auto packet = begin_packet(); f.ota.control(packet.data(), packet.size());
+      f.ota.write(chunk, sizeof(chunk)); during_write = [&] { f.telemetry.record_wheel_edge_from_isr(clock_us); };
+      f.ota.process_pending(); assert(aborted && f.ota.status().error == 1 && f.ota.status().received == 0); }
+    { Fixture f; auto packet = begin_packet(); f.ota.control(packet.data(), packet.size());
+      f.ota.write(chunk, sizeof(chunk)); flash_fails = true; f.ota.process_pending();
+      assert(aborted && f.ota.status().error == 3 && f.ota.status().received == 0); }
 }

@@ -11,7 +11,6 @@
 #include "turbo_confirmation.hpp"
 
 namespace ebike {
-
 class WheelCapture {
   public:
     WheelCapture(ConfigStore& config, TelemetryStore& telemetry, PulseGenerator& pulse);
@@ -28,10 +27,8 @@ class WheelCapture {
     TelemetryStore& telemetry_;
     PulseGenerator& pulse_;
     QueueHandle_t edge_queue_ = nullptr;
-    int64_t last_isr_edge_us_ = -1;  // Written only by the GPIO ISR.
     WheelPeriodFilter period_filter_;
     TurboConfirmation confirmation_;
     uint32_t revolutions_ = 0;
 };
-
 }  // namespace ebike

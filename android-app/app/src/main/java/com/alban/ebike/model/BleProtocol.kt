@@ -7,59 +7,11 @@ import java.util.UUID
 object BleProtocol {
     val serviceUuid: UUID = UUID.fromString("a6f50000-9b8a-4d9f-a0da-9e9d873d1101")
     val eventsUuid: UUID = UUID.fromString("a6f50007-9b8a-4d9f-a0da-9e9d873d1101")
-    val telemetryUuid: UUID = UUID.fromString("a6f50001-9b8a-4d9f-a0da-9e9d873d1101")
     val configUuid: UUID = UUID.fromString("a6f50002-9b8a-4d9f-a0da-9e9d873d1101")
-    val sensorDiagnosticsUuid: UUID = UUID.fromString("a6f50003-9b8a-4d9f-a0da-9e9d873d1101")
-    val firmwareUuid: UUID = UUID.fromString("a6f50004-9b8a-4d9f-a0da-9e9d873d1101")
-    fun decodeFirmwareVersion(bytes: ByteArray): String? {
-        if (bytes.size !in 1..32) return null
-        val value = bytes.toString(Charsets.UTF_8).trim()
-        return value.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+-]{0,31}")) }
-    }
     const val protocolVersion = 1
     const val defaultCircumferenceMm = 2360
     const val defaultThresholdCentiKmh = 2220
 
-    fun decodeTelemetry(bytes: ByteArray): BikeTelemetry? {
-        if (bytes.size != 32) return null
-        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val version = buffer.get().toInt() and 0xff
-        if (version != protocolVersion) return null
-        val flags = buffer.get().toInt() and 0xff
-        return BikeTelemetry(
-            wheelMoving = flags and 0x01 != 0,
-            simulatedOutput = flags and 0x02 != 0,
-            speedMode = flags and 0x04 != 0,
-            modeSupported = flags and 0x08 != 0,
-            sequence = buffer.short.toInt() and 0xffff,
-            uptimeMs = buffer.int.toLong() and 0xffff_ffffL,
-            wheelIntervalUs = buffer.int.toLong() and 0xffff_ffffL,
-            motorIntervalUs = buffer.int.toLong() and 0xffff_ffffL,
-            wheelSpeedKmh = (buffer.short.toInt() and 0xffff) / 100f,
-            motorSpeedKmh = (buffer.short.toInt() and 0xffff) / 100f,
-            wheelRevolutions = buffer.int.toLong() and 0xffff_ffffL,
-            emittedPulses = buffer.int.toLong() and 0xffff_ffffL,
-            circumferenceMm = buffer.short.toInt() and 0xffff,
-        )
-    }
-
-    fun decodeSensorDiagnostics(bytes: ByteArray): SensorDiagnostics? {
-        if (bytes.size != 20) return null
-        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        if ((buffer.get().toInt() and 0xff) != protocolVersion) return null
-        val flags = buffer.get().toInt() and 0xff
-        return SensorDiagnostics(
-            intervalValid = flags and 1 != 0,
-            sequence = buffer.short.toInt() and 0xffff,
-            rawIntervalUs = buffer.int.toLong() and 0xffff_ffffL,
-            edges = buffer.int.toLong() and 0xffff_ffffL,
-            rejectedEdges = buffer.int.toLong() and 0xffff_ffffL,
-            droppedEdges = buffer.int.toLong() and 0xffff_ffffL,
-            limit99 = flags and 2 != 0,
-            acceleration15 = flags and 4 != 0,
-            holdPrevious = flags and 8 != 0,
-        )
-    }
 
     fun encodeConfig(circumferenceMm: Int, speedMode: Boolean? = null): ByteArray =
         ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).apply {
@@ -71,20 +23,7 @@ object BleProtocol {
         }.array()
 }
 
-data class SensorDiagnostics(
-    val intervalValid: Boolean,
-    val sequence: Int,
-    val rawIntervalUs: Long,
-    val edges: Long,
-    val rejectedEdges: Long,
-    val droppedEdges: Long,
-    val limit99: Boolean = false,
-    val acceleration15: Boolean = false,
-    val holdPrevious: Boolean = false,
-)
-
 data class BikeTelemetry(
-    val eventVersion: Int = 1,
     val eventType: Int = 0,
     val session: Long = 0,
     val eventTimeUs: Long = 0,
@@ -92,16 +31,11 @@ data class BikeTelemetry(
     val motorTimeUs: Long = 0,
     val motorTimeValid: Boolean = false,
     val confirmation: Int = 0,
-    val rejectedEdges: Long = 0,
-    val droppedEdges: Long = 0,
-    val telemetryDrops: Long = 0,
     val mappedEventMs: Long = -1,
     val mappedWheelMs: Long = -1,
     val mappedMotorMs: Long = -1,
     val receivedMs: Long = -1,
-    val lostEvents: Long = 0,
     val speedMode: Boolean = false,
-    val modeSupported: Boolean = false,
     val wheelMoving: Boolean = false,
     val simulatedOutput: Boolean = false,
     val sequence: Int = 0,
@@ -111,6 +45,5 @@ data class BikeTelemetry(
     val wheelSpeedKmh: Float = 0f,
     val motorSpeedKmh: Float = 0f,
     val wheelRevolutions: Long = 0,
-    val emittedPulses: Long = 0,
     val circumferenceMm: Int = BleProtocol.defaultCircumferenceMm,
 )

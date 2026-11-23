@@ -4,7 +4,6 @@
 #include <cstdint>
 
 namespace ebike {
-
 // Task-side timing only: rejected edges must never move the revolution anchor.
 class WheelPeriodFilter {
   public:
@@ -66,5 +65,4 @@ class WheelPeriodFilter {
     int64_t last_edge_us_ = -1;
     uint32_t interval_us_ = 0;
 };
-
 }  // namespace ebike

@@ -1,12 +1,10 @@
 #include "config_store.hpp"
 
-#include "esp_log.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
 namespace ebike {
 namespace {
-constexpr char kTag[] = "config";
 constexpr char kNamespace[] = "ebike";
 constexpr char kConfigKey[] = "runtime";
 
@@ -40,11 +38,10 @@ void ConfigStore::begin() {
             portENTER_CRITICAL(&lock_);
             config_ = stored.config;
             portEXIT_CRITICAL(&lock_);
-            ESP_LOGI(kTag, "Loaded circumference: %u mm", config_.circumference_mm);
+
             return;
         }
     }
-    ESP_LOGI(kTag, "Using default circumference: %u mm", config_.circumference_mm);
 }
 
 RuntimeConfig ConfigStore::snapshot() const {
@@ -90,15 +87,10 @@ void ConfigStore::persist(const RuntimeConfig& config) {
     stored.checksum = checksum(config);
     nvs_handle_t handle;
     if (nvs_open(kNamespace, NVS_READWRITE, &handle) != ESP_OK) {
-        ESP_LOGE(kTag, "Unable to open NVS");
         return;
     }
     const esp_err_t write_result = nvs_set_blob(handle, kConfigKey, &stored, sizeof(stored));
-    const esp_err_t commit_result = write_result == ESP_OK ? nvs_commit(handle) : write_result;
+    if (write_result == ESP_OK) nvs_commit(handle);
     nvs_close(handle);
-    if (commit_result != ESP_OK) {
-        ESP_LOGE(kTag, "Unable to persist configuration: %s", esp_err_to_name(commit_result));
-    }
 }
-
 }  // namespace ebike
