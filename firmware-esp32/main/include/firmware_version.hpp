@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-#define EBIKE_FIRMWARE_VERSION_CODE 5
+#define EBIKE_FIRMWARE_VERSION_CODE 6
 #define EBIKE_STRINGIFY_INNER(value) #value
 #define EBIKE_STRINGIFY(value) EBIKE_STRINGIFY_INNER(value)
 namespace ebike {
