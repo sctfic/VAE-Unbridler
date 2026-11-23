@@ -1,10 +1,10 @@
-> Android 0.4.32 (code 40), firmware matériel V1 1.0.10 (code OTA 9).
+> Android 0.4.33 (code 41), firmware matériel V1 1.0.10 (code OTA 9).
 > Acquisition/confirmation ESP32 et lissage d’affichage Android sont séparés ;
 > voir [le protocole BLE courant](BLE_PROTOCOL.md).
 
 # E-BikeCockpit — télémétrie et simulateur d'impulsions
 
-Version Android **0.4.32** — auteur **Lopez Alban**.
+Version Android **0.4.33** — auteur **Lopez Alban**.
 
 Les journaux GPS, trajet et Bluetooth ainsi que le panneau DEBUG sont supprimés.
 Voir [le chargement et les caches 3D](MAP_LOADING.md) et [les changements 0.4.23](RELEASE_0.4.23.md).

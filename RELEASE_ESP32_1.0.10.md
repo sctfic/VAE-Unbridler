@@ -1,6 +1,6 @@
 # ESP32 V1 1.0.10 — test du transfert OTA accéléré
 
-Firmware 1.0.10, code OTA 9. Utiliser Android 0.4.32 déjà installé.
+Firmware 1.0.10, code OTA 9. Utiliser Android 0.4.33.
 Cette version est identique en fonctionnement à la 1.0.9 testée sur la carte ;
 seuls la version et le code OTA augmentent pour proposer une nouvelle mise à jour.
 
@@ -23,3 +23,7 @@ Validation logicielle du flux : 174 tests Android, lint sans erreur, sept suites
 C++ et deux tests d'empaquetage réussis. La 1.0.10 est recompilée et son manifeste
 est vérifié avant publication. Elle est destinée au nouveau test OTA depuis
 la 1.0.9 installée, sans installation automatique.
+
+Android 0.4.33 corrige la recherche OTA : les releases stables de firmware sont
+triées par date de publication, même si GitHub ne renvoie pas la plus récente
+en premier. Le protocole de transfert reste identique à celui de la 0.4.32.

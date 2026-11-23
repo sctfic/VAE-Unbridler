@@ -12,7 +12,13 @@ import java.security.MessageDigest
 class GithubFirmwareRepository {
     fun latest(): FirmwareRelease? {
         val releases = JSONArray(readText("https://api.github.com/repos/$REPO/releases?per_page=100", 2_000_000))
-        for (i in 0 until releases.length()) {
+        val candidates = (0 until releases.length()).map { i ->
+            val r = releases.getJSONObject(i)
+            GithubReleaseCandidate(i, r.getString("tag_name"), r.optBoolean("draft"),
+                r.optBoolean("prerelease"), r.optString("published_at"))
+        }
+        for (candidate in firmwareReleaseCandidates(candidates)) {
+            val i = candidate.index
             val release = releases.getJSONObject(i)
             if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
             val tag = release.getString("tag_name")
